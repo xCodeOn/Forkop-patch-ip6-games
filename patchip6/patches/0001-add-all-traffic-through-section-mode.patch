@@ -296,44 +296,6 @@ index 7cdcf04a..7a3e662c 100644
      add_static_hosts_dns_rule(config, static_hosts);
      add_source_aware_dns_fallback(config);
      add_tunnel_dns_rules(config);
-diff --git a/luci-app-forkop/po/ru/forkop.po b/luci-app-forkop/po/ru/forkop.po
-index 3bf0eb5b..98a80030 100644
---- a/luci-app-forkop/po/ru/forkop.po
-+++ b/luci-app-forkop/po/ru/forkop.po
-@@ -7,8 +7,8 @@ msgid ""
- msgstr ""
- "Project-Id-Version: FORKOP\n"
- "Report-Msgid-Bugs-To: \n"
--"POT-Creation-Date: 2026-10-28 14:47+0300\n"
--"PO-Revision-Date: 2026-10-28 14:47+0300\n"
-+"POT-Creation-Date: 2026-11-01 01:39+0300\n"
-+"PO-Revision-Date: 2026-11-01 01:39+0300\n"
- "Last-Translator: ushan0v\n"
- "Language-Team: none\n"
- "Language: ru\n"
-@@ -293,6 +293,12 @@ msgstr "Все серверы"
- msgid "All traffic from the device is forced through the section"
- msgstr "Весь трафик устройства принудительно пойдёт через секцию"
- 
-+msgid "All traffic through"
-+msgstr "Весь трафик через"
-+
-+msgid "All traffic through a section"
-+msgstr "Весь трафик через секцию"
-+
- msgid "All traffic through the server"
- msgstr "Весь трафик через сервер"
- 
-@@ -854,6 +860,9 @@ msgstr "Включить доступ YACD WAN"
- msgid "Ephemeral node"
- msgstr "Временный узел"
- 
-+msgid "Everything the sections above did not take goes through the selected section: every device and the router itself. DNS requests go through it as well"
-+msgstr "Всё, что не забрали секции выше, идёт через выбранную секцию: все устройства и сам роутер. DNS-запросы тоже идут через неё"
-+
- msgid "Exclude by pattern"
- msgstr "Исключить по шаблону"
- 
 diff --git a/tests/config/validator_references.test.uc b/tests/config/validator_references.test.uc
 index d8991cb2..1b014b68 100644
 --- a/tests/config/validator_references.test.uc

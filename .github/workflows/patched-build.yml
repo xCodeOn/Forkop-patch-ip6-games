@@ -81,6 +81,23 @@ jobs:
           fi
           git status --short
 
+      - name: Add the Russian strings
+        if: ${{ inputs.apply_route_all }}
+        run: |
+          PO=forkop-src/luci-app-forkop/po/ru/forkop.po
+          grep -q 'msgid "All traffic through a section"' "$PO" && exit 0
+          cat >> "$PO" <<'EOF'
+
+          msgid "All traffic through"
+          msgstr "Весь трафик через"
+
+          msgid "All traffic through a section"
+          msgstr "Весь трафик через секцию"
+
+          msgid "Everything the sections above did not take goes through the selected section: every device and the router itself. DNS requests go through it as well"
+          msgstr "Всё, что не забрали секции выше, идёт через выбранную секцию: все устройства и сам роутер. DNS-запросы тоже идут через неё"
+          EOF
+
       - name: Set up Node
         uses: actions/setup-node@v5.0.0
         with:
