@@ -1,0 +1,167 @@
+name: Build hot-patch
+
+# Собирает hot-patch-пак для установленного Forkop: чекаутит выбранный тег upstream,
+# накладывает патчи этого репозитория, пересобирает веб-интерфейс и публикует в релизе
+# архив hotpatch.tar.gz, который ставит на роутер install.sh одной командой.
+# Обновление: вышел новый Forkop — запустите с его тегом.
+
+on:
+  workflow_dispatch:
+    inputs:
+      source_repo:
+        description: "Чей исходный код патчим"
+        type: string
+        default: "ushan0v/forkop"
+      source_ref:
+        description: "Тег или ветка исходников, например 2.0.0 (пусто — последний релиз)"
+        type: string
+        default: ""
+      package_version:
+        description: "Базовая версия пакета x.y.z (пусто — номер тега исходников)"
+        type: string
+        default: ""
+      apply_route_all:
+        description: "Патч 0001: режим «Весь трафик через секцию»"
+        type: boolean
+        default: true
+      apply_aaaa:
+        description: "Патч 0002: пустые ответы AAAA без глобального IPv6"
+        type: boolean
+        default: true
+      run_tests:
+        description: "Прогнать ucode-тесты после патчей"
+        type: boolean
+        default: true
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Patch and assemble
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5.0.0
+
+      - name: Resolve the source ref
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ inputs.source_repo }}
+          REF: ${{ inputs.source_ref }}
+        run: |
+          if [ -n "$REF" ]; then echo "ref=$REF" >> "$GITHUB_ENV"; exit 0; fi
+          tag=$(gh api "repos/$REPO/releases/latest" --jq .tag_name)
+          echo "Using the latest release: $tag"
+          echo "ref=$tag" >> "$GITHUB_ENV"
+
+      - name: Check out the sources
+        uses: actions/checkout@v5.0.0
+        with:
+          repository: ${{ inputs.source_repo }}
+          ref: ${{ env.ref }}
+          path: forkop-src
+
+      - name: Apply the patches
+        working-directory: forkop-src
+        run: |
+          apply() {
+            local f="$1"
+            if git apply -v "$f" 2>/dev/null; then
+              echo "git apply: $f"
+              return 0
+            fi
+            echo "git apply failed on $f, falling back to patch -p1"
+            patch -p1 --fuzz=10 < "$f"
+          }
+          if [ "${{ inputs.apply_route_all }}" = "true" ]; then
+            apply "$GITHUB_WORKSPACE/0001-add-all-traffic-through-section-mode.patch"
+          fi
+          if [ "${{ inputs.apply_aaaa }}" = "true" ]; then
+            apply "$GITHUB_WORKSPACE/0002-suppress-aaaa-without-global-ipv6.patch"
+          fi
+          git status --short
+
+      - name: Set up Node
+        uses: actions/setup-node@v5.0.0
+        with:
+          node-version: '22'
+
+      - name: Enable Corepack
+        run: corepack enable
+
+      - name: Build the web interface
+        working-directory: forkop-src/fe-app-forkop
+        run: |
+          yarn install --frozen-lockfile
+          yarn locales
+          yarn build
+
+      - name: Run the ucode tests
+        if: ${{ inputs.run_tests }}
+        continue-on-error: true
+        run: |
+          git clone --depth 1 --branch v0.0.20250529 https://github.com/jow-/ucode.git /tmp/ucode
+          cmake -S /tmp/ucode -B /tmp/ucode/build \
+            -DUBUS_SUPPORT=OFF -DUCI_SUPPORT=OFF -DULOOP_SUPPORT=OFF
+          cmake --build /tmp/ucode/build --parallel
+          sudo cmake --install /tmp/ucode/build
+          sudo ldconfig
+          cd forkop-src
+          tests/run.sh
+
+      - name: Version
+        env:
+          REF: ${{ env.ref }}
+          PKG: ${{ inputs.package_version }}
+        run: |
+          v=${PKG:-$REF}
+          v=${v#v}
+          echo "ver=$v" >> "$GITHUB_ENV"
+
+      - name: Assemble the hot-patch bundle
+        env:
+          VER: ${{ env.ver }}
+        run: |
+          mkdir -p bundle/files/usr/lib/forkop/nft bundle/files/usr/lib/forkop/singbox \
+                   bundle/files/usr/lib/forkop/config bundle/files/usr/lib/forkop/diagnostics \
+                   bundle/files/www/luci-static/resources/view/forkop
+          SRC=forkop-src/forkop/files/usr/lib/forkop
+          cp "$SRC/nft/state.uc" "$SRC/nft/apply.uc" bundle/files/usr/lib/forkop/nft/
+          cp "$SRC/singbox/generator.uc" "$SRC/singbox/dns.uc" bundle/files/usr/lib/forkop/singbox/
+          cp "$SRC/config/validator.uc" bundle/files/usr/lib/forkop/config/
+          cp "$SRC/diagnostics/checks.uc" bundle/files/usr/lib/forkop/diagnostics/
+          cp forkop-src/luci-app-forkop/htdocs/luci-static/resources/view/forkop/main.js \
+             bundle/files/www/luci-static/resources/view/forkop/main.js
+          printf '{"base": "%s"}\n' "$VER" > bundle/hotpatch.json
+          ( cd bundle/files && sha256sum usr/lib/forkop/nft/state.uc usr/lib/forkop/nft/apply.uc \
+              usr/lib/forkop/singbox/generator.uc usr/lib/forkop/singbox/dns.uc \
+              usr/lib/forkop/config/validator.uc usr/lib/forkop/diagnostics/checks.uc \
+              www/luci-static/resources/view/forkop/main.js > ../SHA256SUMS )
+          tar -czf hotpatch.tar.gz -C bundle usr www hotpatch.json SHA256SUMS
+          echo "bundle: $(tar -tzf hotpatch.tar.gz | wc -l) entries"
+
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: v${{ env.ver }}
+          ROUTE_ALL: ${{ inputs.apply_route_all }}
+          AAAA: ${{ inputs.apply_aaaa }}
+        run: |
+          set -euo pipefail
+          notes="Горячий патч для установленного Forkop ${{ env.ver }}."
+          notes="$notes"$'\\n\\nСостав патчей:'
+          if [ "$ROUTE_ALL" = "true" ]; then notes="$notes"$'\\n- весь трафик через одну секцию: галочка в Настройки → Сеть'; fi
+          if [ "$AAAA" = "true" ]; then notes="$notes"$'\\n- пустые ответы AAAA без глобального IPv6 — приложения, которые стучатся по IPv6 первыми, не зависают'; fi
+          notes="$notes"$'\\n\\nУстановка на роутере:'
+          notes="$notes"$'\\n```sh'
+          notes="$notes"$'\\nwget -O /tmp/hotpatch-install.sh https://github.com/xCodeOn/Forkop-patch-ip6-games/releases/latest/download/install.sh'
+          notes="$notes"$'\\nsh /tmp/hotpatch-install.sh'
+          notes="$notes"$'\\n```'
+          notes="$notes"$'\\n\\nЯдро sing-box-forkop ставится отдельно, как у официального Forkop.'
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" --clobber -- hotpatch.tar.gz install.sh *.patch
+            echo "Release $TAG updated"
+          else
+            gh release create "$TAG" --title "$TAG" --notes "$notes" -- hotpatch.tar.gz install.sh *.patch
+            echo "Release $TAG created"
+          fi
