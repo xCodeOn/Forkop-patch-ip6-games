@@ -151,10 +151,18 @@ index 810d8537..d6f1b9eb 100644
 -return { seed, settings, links, kernel_ipv6 };
 +return { seed, settings, links, kernel_ipv6, ipv6_global_address };
 diff --git a/tests/singbox/generator_dns.test.uc b/tests/singbox/generator_dns.test.uc
-index 8b218993..c4caf1f4 100644
+index 8b218993..3d1877fa 100644
 --- a/tests/singbox/generator_dns.test.uc
 +++ b/tests/singbox/generator_dns.test.uc
-@@ -226,4 +226,31 @@ t.test("DNS timeout reaches the core as configured", () => {
+@@ -2,6 +2,7 @@ let t = require("t");
+ let fixture = require("fixture");
+ let q = require("sbconfig");
+ let generator = require("singbox.generator");
++let constants = require("singbox.constants");
+ 
+ function build(data) {
+     fixture.seed(data);
+@@ -226,4 +227,31 @@ t.test("DNS timeout reaches the core as configured", () => {
      t.eq(config.experimental.cache_file.store_subscriptions, true);
  });
  
@@ -180,7 +188,7 @@ index 8b218993..c4caf1f4 100644
 +    });
 +    fixture.ipv6_global_address(true);
 +    let d = generator.build({ service_address: "192.168.1.1" });
-+    t.eq(q.dns_server_tag(d, "fakeip-server").inet6_range, "2001:2::/112");
++    t.eq(q.dns_server_tag(d, "fakeip-server").inet6_range, constants.FAKEIP_INET6_RANGE);
 +    t.eq(q.dns_rule(d, (r) => r.inbound != null && r.query_type != null &&
 +        length(r.query_type) == 1 && r.query_type[0] == "AAAA"), null, "no catch-all AAAA rule");
 +});
