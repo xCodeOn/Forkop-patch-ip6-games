@@ -27,7 +27,7 @@ fetch() { # fetch URL FILE
 
 CONFIG_VERSION=$(uci -q get forkop.settings.config_version 2>/dev/null)
 case "$CONFIG_VERSION" in
-    1.*) say "Forkop 1.0.x (конфиг $CONFIG_VERSION) — подходит" ;;
+    1.*) echo "hotpatch-1.0.5: Forkop 1.0.x (конфиг $CONFIG_VERSION) — подходит" ;;
     *) die "это скрипт для Forkop 1.0.x, а версия конфига ${CONFIG_VERSION:-неизвестна}. Для Forkop 2.x используйте install.sh" ;;
 esac
 [ -f /www/luci-static/resources/view/forkop/settings.js ] ||
