@@ -55,7 +55,7 @@ tar -xzf "$WORK/hotpatch.tar.gz" -C "$WORK" || die "битый архив"
 
 if command -v sha256sum >/dev/null 2>&1; then
     say "Проверяю контрольные суммы..."
-    ( cd "$WORK/files" && sha256sum -c SHA256SUMS --status ) ||
+    ( cd "$WORK/files" && sha256sum -c SHA256SUMS >/dev/null 2>&1 ) ||
         die "контрольные суммы файлов не сошлись — архив повреждён"
 else
     say "sha256sum в системе нет — пропускаю проверку сумм"
