@@ -1,0 +1,195 @@
+name: Build hot-patch
+
+# Собирает hot-patch-пак для установленного Forkop: накладывает патч этого
+# репозитория на выбранный тег upstream, пересобирает веб-интерфейс, прогоняет
+# тесты и публикует в релизе архив, который ставит install.sh.
+# Обновление: вышел новый Forkop — запустите с его тегом.
+
+on:
+  workflow_dispatch:
+    inputs:
+      source_repo:
+        description: "Чей исходный код патчим"
+        type: string
+        default: "ushan0v/forkop"
+      source_ref:
+        description: "Тег или ветка исходников 2.x, например 2.0.0 (пусто — последний релиз)"
+        type: string
+        default: ""
+      package_version:
+        description: "Базовая версия пакета x.y.z (пусто — номер тега исходников)"
+        type: string
+        default: ""
+      run_tests:
+        description: "Прогнать ucode-тесты после патчей (2.x)"
+        type: boolean
+        default: true
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Patch and assemble 2.x
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5.0.0
+
+      - name: Resolve the source ref
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ inputs.source_repo }}
+          REF: ${{ inputs.source_ref }}
+        run: |
+          if [ -n "$REF" ]; then echo "ref=$REF" >> "$GITHUB_ENV"; exit 0; fi
+          tag=$(gh api "repos/$REPO/releases/latest" --jq .tag_name)
+          echo "Using the latest release: $tag"
+          echo "ref=$tag" >> "$GITHUB_ENV"
+
+      - name: Check out the sources
+        uses: actions/checkout@v5.0.0
+        with:
+          repository: ${{ inputs.source_repo }}
+          ref: ${{ env.ref }}
+          path: forkop-src
+
+      - name: Apply the patch
+        working-directory: forkop-src
+        run: |
+          apply() {
+            local f="$1"
+            if git apply -v "$f" 2>/dev/null; then
+              echo "git apply: $f"
+              return 0
+            fi
+            echo "git apply failed on $f, falling back to patch -p1"
+            patch -p1 --fuzz=10 < "$f"
+          }
+          apply "$GITHUB_WORKSPACE/patch-fix-game-suppress-aaaa-without-global-ipv6.patch"
+          git status --short
+
+      - name: Set up Node
+        uses: actions/setup-node@v5.0.0
+        with:
+          node-version: '22'
+
+      - name: Enable Corepack
+        run: corepack enable
+
+      - name: Build the web interface
+        working-directory: forkop-src/fe-app-forkop
+        run: |
+          yarn install --frozen-lockfile
+          yarn locales
+          yarn build
+
+      - name: Run the ucode tests
+        if: ${{ inputs.run_tests }}
+        continue-on-error: true
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential cmake libjson-c-dev pkg-config
+          git clone --depth 1 --branch v0.0.20250529 https://github.com/jow-/ucode.git /tmp/ucode
+          cmake -S /tmp/ucode -B /tmp/ucode/build \
+            -DUBUS_SUPPORT=OFF -DUCI_SUPPORT=OFF -DULOOP_SUPPORT=OFF
+          cmake --build /tmp/ucode/build --parallel
+          sudo cmake --install /tmp/ucode/build
+          sudo ldconfig
+          cd forkop-src
+          tests/run.sh
+
+      - name: Version
+        env:
+          REF: ${{ env.ref }}
+          PKG: ${{ inputs.package_version }}
+        run: |
+          v=${PKG:-$REF}
+          v=${v#v}
+          echo "ver=$v" >> "$GITHUB_ENV"
+
+      - name: Build po2lmo
+        run: |
+          git clone --depth 1 https://github.com/openwrt/luci.git /tmp/luci
+          cd /tmp/luci/modules/luci-base/src
+          cc -std=gnu17 -o contrib/lemon contrib/lemon.c
+          ./contrib/lemon -q lib/plural_formula.y
+          cc -o po2lmo po2lmo.c lib/lmo.c lib/plural_formula.c
+
+      - name: Assemble the hot-patch bundle
+        env:
+          VER: ${{ env.ver }}
+        run: |
+          mkdir -p bundle/files/usr/lib/forkop/nft bundle/files/usr/lib/forkop/singbox \
+                   bundle/files/usr/lib/forkop/config bundle/files/usr/lib/forkop/diagnostics \
+                   bundle/files/www/luci-static/resources/view/forkop \
+                   bundle/files/usr/lib/lua/luci/i18n
+          SRC=forkop-src/forkop/files/usr/lib
+          cp "$SRC/nft/state.uc" "$SRC/nft/apply.uc" bundle/files/usr/lib/forkop/nft/
+          cp "$SRC/singbox/generator.uc" "$SRC/singbox/dns.uc" bundle/files/usr/lib/forkop/singbox/
+          cp "$SRC/config/validator.uc" bundle/files/usr/lib/forkop/config/
+          cp "$SRC/diagnostics/checks.uc" bundle/files/usr/lib/forkop/diagnostics/
+          cp forkop-src/luci-app-forkop/htdocs/luci-static/resources/view/forkop/main.js \
+             bundle/files/www/luci-static/resources/view/forkop/main.js
+          /tmp/luci/modules/luci-base/src/po2lmo \
+            forkop-src/luci-app-forkop/po/ru/forkop.po             bundle/files/usr/lib/lua/luci/i18n/forkop.ru.lmo
+          printf '{"base": "%s"}\n' "$VER" > bundle/hotpatch.json
+          ( cd bundle/files && sha256sum usr/lib/forkop/nft/state.uc usr/lib/forkop/nft/apply.uc \
+              usr/lib/forkop/singbox/generator.uc usr/lib/forkop/singbox/dns.uc \
+              usr/lib/forkop/config/validator.uc usr/lib/forkop/diagnostics/checks.uc \
+              www/luci-static/resources/view/forkop/main.js \
+              usr/lib/lua/luci/i18n/forkop.ru.lmo > ../SHA256SUMS )
+          tar -czf hotpatch.tar.gz -C bundle files hotpatch.json SHA256SUMS
+          echo "bundle: $(tar -tzf hotpatch.tar.gz | wc -l) entries"
+
+      - name: Upload the 2.x bundle
+        uses: actions/upload-artifact@v4.6.2
+        with:
+          name: hotpatch-2x
+          path: hotpatch.tar.gz
+          if-no-files-found: error
+
+  publish:
+    name: Publish the release
+    needs: [build]
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5.0.0
+
+      - name: Resolve the release tag
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ inputs.source_repo }}
+          REF: ${{ inputs.source_ref }}
+          PKG: ${{ inputs.package_version }}
+        run: |
+          if [ -n "$PKG" ]; then v=${PKG#v}; echo "tag=v$v" >> "$GITHUB_ENV"; exit 0; fi
+          if [ -n "$REF" ]; then v=${REF#v}; echo "tag=v$v" >> "$GITHUB_ENV"; exit 0; fi
+          tag=$(gh api "repos/$REPO/releases/latest" --jq .tag_name)
+          echo "tag=v${tag#v}" >> "$GITHUB_ENV"
+
+      - name: Download the bundles
+        uses: actions/download-artifact@v4
+        with:
+          pattern: hotpatch-*
+          merge-multiple: true
+          path: release
+
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ env.tag }}
+        run: |
+          set -euo pipefail
+          notes="Горячий патч для установленного Forkop."
+          notes="$notes"$'\n\nСостав патча:'
+          notes="$notes"$'\n- пустые ответы AAAA без глобального IPv6 — приложения, которые стучатся по IPv6 первыми, не зависают'
+          notes="$notes"$'\n\nУстановка на роутере:\n```sh\nwget -qO - https://github.com/xCodeOn/Forkop-patch-ip6-games/releases/latest/download/install.sh | sh\n```\n\nЯдро sing-box-forkop ставится отдельно, как у официального Forkop.'
+          cp install.sh release/
+          for p in *.patch; do cp "$p" release/; done
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" --clobber -- release/*
+            echo "Release $TAG updated"
+          else
+            gh release create "$TAG" --title "$TAG" --notes "$notes" -- release/*
+            echo "Release $TAG created"
+          fi
