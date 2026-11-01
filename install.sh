@@ -3,17 +3,15 @@
 # backend-скрипты и собранный веб-интерфейс ложатся поверх установленных, сервис
 # перезагружает конфигурацию. Исходники и сборка не нужны.
 #
+# Версию Forkop скрипт не проверяет — ставится автоматически поверх любой.
+#
 # Запуск на роутере:
 #   wget -O /tmp/hotpatch-install.sh https://github.com/xCodeOn/Forkop-patch-ip6-games/releases/latest/download/install.sh
-#   sh /tmp/hotpatch-install.sh [--force]
-#
-# --force ставит патч-пак, собранный для другой версии Forkop.
+#   sh /tmp/hotpatch-install.sh
 set -u
 
 REPO="https://github.com/xCodeOn/Forkop-patch-ip6-games"
 WORK=/tmp/forkop-hotpatch
-FORCE=0
-[ "${1:-}" = "--force" ] && FORCE=1
 
 say() { echo "hotpatch: $*"; }
 die() { say "ОШИБКА: $*"; exit 1; }
@@ -31,8 +29,7 @@ fetch() { # fetch URL FILE
 [ -x /etc/init.d/forkop ] || die "сервис forkop не найден"
 
 INSTALLED=$(sed -n 's/.*FORKOP_VERSION: "\([^"]*\)".*/\1/p' /usr/lib/forkop/core/constants.uc 2>/dev/null)
-[ -n "$INSTALLED" ] || die "не удалось определить версию установленного Forkop"
-say "Установлен Forkop $INSTALLED"
+say "Установлен Forkop ${INSTALLED:-неизвестной версии}"
 
 rm -rf "$WORK"
 mkdir -p "$WORK"
@@ -41,16 +38,7 @@ say "Скачиваю патч-пак из последнего релиза..."
 fetch "$REPO/releases/latest/download/hotpatch.tar.gz" "$WORK/hotpatch.tar.gz" ||
     die "не скачал hotpatch.tar.gz — проверьте интернет на роутере"
 
-tar -xzf "$WORK/hotpatch.tar.gz" -C "$WORK" hotpatch.json ||
-    die "битый архив: нет манифеста"
-BASE=$(sed -n 's/.*"base": *"\([^"]*\)".*/\1/p' "$WORK/hotpatch.json")
-[ -n "$BASE" ] || die "битый манифест"
-
-if [ "$BASE" != "$INSTALLED" ] && [ "$FORCE" != 1 ]; then
-    die "патч-пак собран для Forkop $BASE, а установлено $INSTALLED. Обновите Forkop до $BASE или запустите с --force"
-fi
-
-say "Распаковываю файлы Forkop $BASE..."
+say "Распаковываю файлы..."
 tar -xzf "$WORK/hotpatch.tar.gz" -C "$WORK" || die "битый архив"
 
 if command -v sha256sum >/dev/null 2>&1; then
