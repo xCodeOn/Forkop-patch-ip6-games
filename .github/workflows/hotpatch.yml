@@ -173,7 +173,9 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ inputs.source_repo }}
           REF: ${{ inputs.source_ref }}
+          PKG: ${{ inputs.package_version }}
         run: |
+          if [ -n "$PKG" ]; then v=${PKG#v}; echo "tag=v$v" >> "$GITHUB_ENV"; exit 0; fi
           if [ -n "$REF" ]; then v=${REF#v}; echo "tag=v$v" >> "$GITHUB_ENV"; exit 0; fi
           tag=$(gh api "repos/$REPO/releases/latest" --jq .tag_name)
           echo "tag=v${tag#v}" >> "$GITHUB_ENV"
