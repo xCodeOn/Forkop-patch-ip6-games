@@ -100,6 +100,8 @@ jobs:
         if: ${{ inputs.run_tests }}
         continue-on-error: true
         run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential cmake libjson-c-dev pkg-config
           git clone --depth 1 --branch v0.0.20250529 https://github.com/jow-/ucode.git /tmp/ucode
           cmake -S /tmp/ucode -B /tmp/ucode/build \
             -DUBUS_SUPPORT=OFF -DUCI_SUPPORT=OFF -DULOOP_SUPPORT=OFF
@@ -125,7 +127,7 @@ jobs:
           mkdir -p bundle/files/usr/lib/forkop/nft bundle/files/usr/lib/forkop/singbox \
                    bundle/files/usr/lib/forkop/config bundle/files/usr/lib/forkop/diagnostics \
                    bundle/files/www/luci-static/resources/view/forkop
-          SRC=forkop-src/forkop/files/usr/lib/forkop
+          SRC=forkop-src/forkop/files/usr/lib
           cp "$SRC/nft/state.uc" "$SRC/nft/apply.uc" bundle/files/usr/lib/forkop/nft/
           cp "$SRC/singbox/generator.uc" "$SRC/singbox/dns.uc" bundle/files/usr/lib/forkop/singbox/
           cp "$SRC/config/validator.uc" bundle/files/usr/lib/forkop/config/
