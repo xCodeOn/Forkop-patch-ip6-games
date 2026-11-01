@@ -16,10 +16,6 @@ on:
         description: "Тег или ветка исходников 2.x, например 2.0.0 (пусто — последний релиз)"
         type: string
         default: ""
-      ref_105:
-        description: "Тег исходников для патча 1.0.5"
-        type: string
-        default: "1.0.5"
       package_version:
         description: "Базовая версия пакета x.y.z (пусто — номер тега исходников)"
         type: string
@@ -153,70 +149,9 @@ jobs:
           path: hotpatch.tar.gz
           if-no-files-found: error
 
-  build-105:
-    name: Patch and assemble 1.0.5
-    runs-on: ubuntu-24.04
-    steps:
-      - uses: actions/checkout@v5.0.0
-
-      - name: Check out the 1.0.5 sources
-        uses: actions/checkout@v5.0.0
-        with:
-          repository: ${{ inputs.source_repo }}
-          ref: ${{ inputs.ref_105 }}
-          path: forkop-105
-
-      - name: Apply the patch
-        working-directory: forkop-105
-        run: |
-          if git apply -v "$GITHUB_WORKSPACE/forkop-1-0-5-route-all-and-aaaa.patch" 2>/dev/null; then
-            echo "git apply ok"
-          else
-            patch -p1 --fuzz=10 < "$GITHUB_WORKSPACE/forkop-1-0-5-route-all-and-aaaa.patch"
-          fi
-          git status --short
-
-      - name: Build po2lmo
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y build-essential
-          git clone --depth 1 https://github.com/openwrt/luci.git /tmp/luci
-          cd /tmp/luci/modules/luci-base/src
-          cc -std=gnu17 -o contrib/lemon contrib/lemon.c
-          ./contrib/lemon -q lib/plural_formula.y
-          cc -o po2lmo po2lmo.c lib/lmo.c lib/plural_formula.c
-
-      - name: Assemble the hot-patch bundle
-        run: |
-          mkdir -p bundle/files/usr/lib/forkop/nft bundle/files/usr/lib/forkop/singbox \
-                   bundle/files/www/luci-static/resources/view/forkop \
-                   bundle/files/usr/lib/lua/luci/i18n
-          SRC=forkop-105/forkop/files/usr/lib
-          cp "$SRC/nft/apply.uc" bundle/files/usr/lib/forkop/nft/
-          cp "$SRC/singbox/generator.uc" "$SRC/singbox/dns.uc" bundle/files/usr/lib/forkop/singbox/
-          cp forkop-105/luci-app-forkop/htdocs/luci-static/resources/view/forkop/settings.js \
-             bundle/files/www/luci-static/resources/view/forkop/settings.js
-          /tmp/luci/modules/luci-base/src/po2lmo \
-            forkop-105/luci-app-forkop/po/ru/forkop.po \
-            bundle/files/usr/lib/lua/luci/i18n/forkop.ru.lmo
-          printf '{"base": "1.0.5"}\n' > bundle/hotpatch.json
-          ( cd bundle/files && sha256sum usr/lib/forkop/nft/apply.uc \
-              usr/lib/forkop/singbox/generator.uc usr/lib/forkop/singbox/dns.uc \
-              www/luci-static/resources/view/forkop/settings.js \
-              usr/lib/lua/luci/i18n/forkop.ru.lmo > ../SHA256SUMS )
-          tar -czf hotpatch-1.0.5.tar.gz -C bundle files hotpatch.json SHA256SUMS
-          echo "bundle: $(tar -tzf hotpatch-1.0.5.tar.gz | wc -l) entries"
-
-      - name: Upload the 1.0.5 bundle
-        uses: actions/upload-artifact@v4.6.2
-        with:
-          name: hotpatch-105
-          path: hotpatch-1.0.5.tar.gz
-          if-no-files-found: error
-
   publish:
     name: Publish the release
-    needs: [build, build-105]
+    needs: [build]
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v5.0.0
@@ -250,8 +185,8 @@ jobs:
           notes="$notes"$'\n\nСостав патчей:'
           if [ "$ROUTE_ALL" = "true" ]; then notes="$notes"$'\n- весь трафик через одну секцию: галочка в Настройки'; fi
           if [ "$AAAA" = "true" ]; then notes="$notes"$'\n- пустые ответы AAAA без глобального IPv6 — приложения, которые стучатся по IPv6 первыми, не зависают'; fi
-          notes="$notes"$'\n\nУстановка на роутере:\n\nДля Forkop 2.0.0:\n```sh\nwget -qO - https://github.com/xCodeOn/Forkop-patch-ip6-games/releases/latest/download/install.sh | sh\n```\n\nДля Forkop 1.0.5:\n```sh\nwget -qO - https://github.com/xCodeOn/Forkop-patch-ip6-games/releases/latest/download/install-1.0.5.sh | sh\n```\n\nЯдро sing-box-forkop ставится отдельно, как у официального Forkop.'
-          cp install.sh install-1.0.5.sh release/
+          notes="$notes"$'\n\nУстановка на роутере:\n```sh\nwget -qO - https://github.com/xCodeOn/Forkop-patch-ip6-games/releases/latest/download/install.sh | sh\n```\n\nЯдро sing-box-forkop ставится отдельно, как у официального Forkop.'
+          cp install.sh release/
           for p in *.patch; do cp "$p" release/; done
           if gh release view "$TAG" >/dev/null 2>&1; then
             gh release upload "$TAG" --clobber -- release/*

@@ -23,10 +23,8 @@
 
 ## Патчи
 
-Патчи для двух версий Forkop — **2.0.0** и **1.0.5**. Обе фичи в каждой версии:
-«весь трафик через секцию» и честный DNS без IPv6.
-
-**Для Forkop 2.0.0** (накладываются оба, порядок: сначала 0001, затем 0002):
+Патчи для **Forkop 2.0.0**. Обе фичи: «весь трафик через секцию» и честный DNS
+без IPv6 (накладываются оба, порядок: сначала 0001, затем 0002):
 
 | Файл | Что делает |
 | --- | --- |
@@ -43,20 +41,11 @@
 релиза, проверит контрольные суммы, уложит файлы и перезагрузит конфигурацию —
 без промежуточных шагов.
 
-**Для Forkop 2.0.0:**
-
 ```sh
 wget -qO - https://github.com/xCodeOn/Forkop-patch-ip6-games/releases/latest/download/install.sh | sh
 ```
 
-**Для Forkop 1.0.5:**
-
-```sh
-wget -qO - https://github.com/xCodeOn/Forkop-patch-ip6-games/releases/latest/download/install-1.0.5.sh | sh
-```
-
-Дальше — **Службы → Forkop → Настройки**: в 2.x галочка в группе «Сеть», в 1.0.5 —
-«All traffic through section» на странице настроек.
+Дальше — **Службы → Forkop → Настройки → Сеть → Весь трафик через секцию**.
 
 Нюансы:
 
@@ -67,8 +56,7 @@ wget -qO - https://github.com/xCodeOn/Forkop-patch-ip6-games/releases/latest/dow
   скрипт ещё раз: workflow пересобирает паки под новый тег автоматически;
 - ядро [sing-box-forkop](https://github.com/ushan0v/sing-box-forkop) не трогается —
   ставится отдельно, как у официального Forkop;
-- конфиг `/etc/config/forkop` сохраняется;
-- в 1.0.5 переводы новых строк уже внутри пака (forkop.ru.lmo).
+- конфиг `/etc/config/forkop` сохраняется.
 
 Нюансы:
 
@@ -98,15 +86,6 @@ patch -p1 --fuzz=10 < ../0002-suppress-aaaa-without-global-ipv6.patch
 ./build.sh 2.0.0 out        # в out/ появятся *_all.ipk и *_all.apk
 ```
 
-Для Forkop **1.0.5** — один патч вместо двух, пересборка веб-интерфейса не нужна:
-
-```sh
-git clone https://github.com/ushan0v/forkop -b 1.0.5 && cd forkop
-
-patch -p1 --fuzz=10 < ../forkop-1-0-5-route-all-and-aaaa.patch
-
-./build.sh 1.0.5 out
-```
 
 Свежие патчи — в [релизах](../../releases/latest), либо прямой ссылкой:
 
