@@ -31,16 +31,22 @@
 ## Установка на роутер одной командой
 
 Патч ставится поверх уже установленного Forkop — исходники и сборка не нужны.
-Подключитесь к роутеру по SSH и выполните:
+Скрипт уже лежит на роутере в `/tmp/hotpatch-install.sh` — обновление патча
+выполняется одной командой:
 
 ```sh
-wget -O /tmp/hotpatch-install.sh https://github.com/xCodeOn/Forkop-patch-ip6-games/releases/latest/download/install.sh
 sh /tmp/hotpatch-install.sh
 ```
 
-Скрипт скачает hot-patch-пак из релиза, проверит контрольные суммы, уложит файлы
-и перезагрузит конфигурацию Forkop. Дальше — **Службы → Forkop → Настройки → Сеть →
-Весь трафик через секцию**.
+Скрипт сам скачает свежий hot-patch-пак из релиза, проверит контрольные суммы,
+уложит файлы и перезагрузит конфигурацию Forkop. Дальше — **Службы → Forkop →
+Настройки → Сеть → Весь трафик через секцию**.
+
+Если скрипта на роутере ещё нет (первая установка), скачайте его один раз:
+
+```sh
+wget -O /tmp/hotpatch-install.sh https://github.com/xCodeOn/Forkop-patch-ip6-games/releases/latest/download/install.sh
+```
 
 Нюансы:
 
