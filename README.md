@@ -2,94 +2,59 @@
 
 # Forkop patch: ip6 & games
 
-**Патчи для [Forkop](https://github.com/ushan0v/forkop), которые собираются в готовые пакеты одной кнопкой.**
+**Два патча поверх [Forkop](https://github.com/ushan0v/forkop) — забрать их можно прямо отсюда.**
 
 Весь трафик роутера через VPN одной галочкой и честный DNS без IPv6 — чтобы игровые
 клиенты и другие приложения, которые стучатся по IPv6 первыми, больше не зависали
 на адресах, до которых нет хода.
 
-[![Build patched packages](https://github.com/xCodeOn/Forkop-patch-ip6-games/actions/workflows/patched-build.yml/badge.svg)](https://github.com/xCodeOn/Forkop-patch-ip6-games/actions/workflows/patched-build.yml)
-[![Релизы](https://img.shields.io/github/v/release/xCodeOn/Forkop-patch-ip6-games?label=релиз&color=0d9488)](../../releases)
+[![Релиз](https://img.shields.io/github/v/release/xCodeOn/Forkop-patch-ip6-games?label=патчи&color=0d9488)](../../releases/latest)
 [![Лицензия](https://img.shields.io/badge/лицензия-GPL--2.0--or--later-blue)](LICENSE)
 
 </div>
 
 ---
 
-## Что внутри
+## Патчи
 
-### 0001 — «Весь трафик через секцию»
-
-Одна галочка в **Настройки → Сеть → Весь трафик через секцию**. Выбираете секцию с
-подключением — и весь трафик, который не забрали секции выше, идёт через неё:
-
-- все устройства LAN и **сам роутер**;
-- **DNS-запросы автоматически** идут через ту же секцию — провайдер не видит домены;
-- секции Block и Bypass работают как раньше — это ваши исключения;
-- устройства из «Исключить устройства из маршрутизации» остаются без VPN.
-
-Никаких ручных правил «на каждый сайт»: одна галочка — и роутер стал VPN-шлюзом.
-Выключается тем же переключателем, конфиг при этом не трогается.
-
-### 0002 — честный DNS без IPv6
-
-Если у роутера нет глобального IPv6-адреса (провайдер даёт только IPv4), любой AAAA-ответ
-указывает на адрес, до которого **нет хода**. Приложения, которые стучатся по IPv6
-первыми, — игровые клиенты по UDP среди них — на таких адресах просто зависают.
-
-Патч делает DNS честным: пока глобального IPv6 нет, Forkop отвечает на AAAA-запросы
-пустым ответом, и клиенты сразу идут по IPv4. Как только провайдер выдаст настоящий
-IPv6 — всё вернётся автоматически, без настроек.
-
-Патчи независимы: можно собрать оба, любой один или ни одного.
-
-## Сборка
-
-Всё собирается этим же репозиторием: **Actions → Build patched packages → Run workflow**.
-
-| Параметр | Что задаёт |
+| Файл | Что делает |
 | --- | --- |
-| `source_repo` | чей исходный код патчим, по умолчанию `ushan0v/forkop` |
-| `source_ref` | тег или ветка, например `v2.0.1`; пусто — последний релиз upstream |
-| `package_version` | версия пакетов `x.y.z`; пусто — номер тега |
-| `apply_route_all` / `apply_aaaa` | какие патчи накладывать |
-| `run_tests` | прогнать ucode-тесты после патчей |
+| `0001-add-all-traffic-through-section-mode.patch` | **«Весь трафик через секцию»** — галочка в Настройки → Сеть. Выбираете секцию с подключением: все устройства LAN, сам роутер и DNS-запросы идут через неё. Секции Block и Bypass работают как исключения, устройства из «Исключить устройства из маршрутизации» остаются без VPN. Выключается тем же переключателем |
+| `0002-suppress-aaaa-without-global-ipv6.patch` | **Честный DNS без IPv6** — если у роутера нет глобального IPv6-адреса, DNS отвечает на AAAA-запросы пустым ответом. Клиенты сразу идут по IPv4: приложения, которые стучатся по IPv6 первыми, — игровые клиенты по UDP среди них, — больше не зависают. Когда провайдер выдаст настоящий IPv6, всё вернётся само |
 
-Готовый прогон кладёт в релиз `v<версия>` все пакеты: `forkop`, `luci-app-forkop`,
-`luci-i18n-forkop-ru` — сразу в **ipk** (OpenWrt 24.10) и **apk** (OpenWrt 25.12+),
-плюс `install.sh`, `release.json` и `SHA256SUMS`.
+Патчи независимы: применяйте оба, любой один или ни одного.
 
-Когда выйдет новая версия Forkop — просто запустите workflow с её тегом: патчи
-наложатся на свежие исходники, тесты прогонятся, релиз обновится.
+## Как применить
 
-## Установка на роутер
-
-Скачайте релиз и выполните по SSH:
-
-**OpenWrt 25.12 и новее (apk):**
+Патчи кладутся на исходники Forkop нужной версии. Свежие — в
+[релизах](../../releases/latest), либо прямой ссылкой:
 
 ```sh
-scp forkop_*_all.apk luci-app-forkop_*_all.apk luci-i18n-forkop-ru_*_all.apk root@192.168.8.8:/tmp/
-ssh root@192.168.8.8 'apk add --allow-untrusted --no-network --repositories-file /dev/null /tmp/forkop_*_all.apk /tmp/luci-app-forkop_*_all.apk /tmp/luci-i18n-forkop-ru_*_all.apk'
+curl -LO https://github.com/xCodeOn/Forkop-patch-ip6-games/releases/latest/download/0001-add-all-traffic-through-section-mode.patch
+curl -LO https://github.com/xCodeOn/Forkop-patch-ip6-games/releases/latest/download/0002-suppress-aaaa-without-global-ipv6.patch
 ```
 
-**OpenWrt 24.10 (opkg):**
+Наложить на исходники и собрать пакеты штатным сборщиком Forkop:
 
 ```sh
-ssh root@192.168.8.8 'opkg install /tmp/forkop_*_all.ipk /tmp/luci-app-forkop_*_all.ipk /tmp/luci-i18n-forkop-ru_*_all.ipk'
+git clone https://github.com/ushan0v/forkop -b 2.0.0 && cd forkop
+
+patch -p1 --fuzz=10 < ../0001-add-all-traffic-through-section-mode.patch
+patch -p1 --fuzz=10 < ../0002-suppress-aaaa-without-global-ipv6.patch
+
+(cd fe-app-forkop && yarn install --frozen-lockfile && yarn locales && yarn build)
+./build.sh 2.0.0 out        # в out/ появятся *_all.ipk и *_all.apk
 ```
 
-Требования — как у официального Forkop: OpenWrt 24.10+, от 128 МБ ОЗУ, установленное
-ядро [sing-box-forkop](https://github.com/ushan0v/sing-box-forkop) нужной версии.
-Конфиг `/etc/config/forkop` при обновлении сохраняется.
+Вместо `2.0.0` берите тег версии, на которую накладываете: патчи пишутся с запасом
+контекста и ложатся на соседние версии через `--fuzz`. `git apply` строже — если он
+отказался, `patch -p1 --fuzz=10` добьёт.
 
-После установки: **Службы → Forkop → Настройки → Сеть → Весь трафик через секцию**.
+После установки пакетов: **Службы → Forkop → Настройки → Сеть → Весь трафик через секцию**.
 
-## Документация
-
-- Подробности патч-комплекта — [patchip6/README.md](patchip6/README.md)
-- Официальная документация Forkop — [ushan0v.github.io/forkop](https://ushan0v.github.io/forkop/)
-- Вопросы по базе Forkop — [чат в Telegram](https://t.me/forkop_chat)
+Требования — как у официального Forkop: OpenWrt 24.10+, от 128 МБ ОЗУ, ядро
+[sing-box-forkop](https://github.com/ushan0v/sing-box-forkop). Конфиг
+`/etc/config/forkop` при обновлении сохраняется.
 
 ## Поддержать
 
