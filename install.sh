@@ -27,6 +27,8 @@ fetch() { # fetch URL FILE
 [ "$(id -u)" = "0" ] || die "запускайте под root"
 [ -x /usr/bin/forkop ] || die "Forkop не установлен (/usr/bin/forkop не найден)"
 [ -x /etc/init.d/forkop ] || die "сервис forkop не найден"
+[ -f /usr/lib/forkop/singbox/generator.uc ] ||
+    die "установлен Forkop 1.x — патчи собраны под 2.x. Сначала обновите Forkop до 2.x официальным установщиком (ushan0v/forkop), затем вернитесь к hot-patch"
 
 INSTALLED=$(sed -n 's/.*FORKOP_VERSION: "\([^"]*\)".*/\1/p' /usr/lib/forkop/core/constants.uc 2>/dev/null)
 say "Установлен Forkop ${INSTALLED:-неизвестной версии}"
