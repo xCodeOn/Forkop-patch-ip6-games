@@ -139,7 +139,7 @@ jobs:
               usr/lib/forkop/singbox/generator.uc usr/lib/forkop/singbox/dns.uc \
               usr/lib/forkop/config/validator.uc usr/lib/forkop/diagnostics/checks.uc \
               www/luci-static/resources/view/forkop/main.js > ../SHA256SUMS )
-          tar -czf hotpatch.tar.gz -C bundle usr www hotpatch.json SHA256SUMS
+          tar -czf hotpatch.tar.gz -C bundle files hotpatch.json SHA256SUMS
           echo "bundle: $(tar -tzf hotpatch.tar.gz | wc -l) entries"
 
       - name: Publish the release
