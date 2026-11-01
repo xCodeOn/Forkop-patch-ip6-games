@@ -1,0 +1,509 @@
+diff --git a/docs/guide/quick-start.md b/docs/guide/quick-start.md
+index c855628d..a26341f2 100644
+--- a/docs/guide/quick-start.md
++++ b/docs/guide/quick-start.md
+@@ -21,3 +21,7 @@
+ На вкладке **Статус** нажмите **Запустить диагностику**, все группы должны стать зелёными. На вкладке **Дашборд** нажмите **Тестировать все секции**: у рабочих серверов появится задержка, а N/A значит, что сервер не ответил.
+ 
+ Что ещё умеют секции, описано на странице [Секции](/sections/).
++
++## Весь трафик через VPN
++
++Если через VPN должны идти не только заблокированные сайты, а всё: на вкладке **Настройки**, в группе **Сеть**, включите **Весь трафик через секцию** и выберите секцию с подключением. Через неё пойдёт трафик всех устройств и самого роутера, DNS-запросы тоже, а секции выше продолжают работать как исключения: реклама блокируется, отдельные сайты обходятся. Исключённые устройства из **Исключить устройства из маршрутизации** остаются без VPN.
+diff --git a/docs/settings.md b/docs/settings.md
+index 8b303e8d..d880b534 100644
+--- a/docs/settings.md
++++ b/docs/settings.md
+@@ -21,6 +21,7 @@
+ 
+ | Параметр | По умолчанию | Что делает |
+ | --- | --- | --- |
++| **Весь трафик через секцию** (`route_all_enabled`, `route_all_section`) | выключено | весь трафик, который не забрали секции выше, идёт через выбранную секцию: все устройства и сам роутер. DNS-запросы тоже идут через неё, вручную включать [DNS через секцию](#dns) не нужно. Секции выше продолжают работать как исключения, а устройства из **Исключить устройства из маршрутизации** остаются без VPN |
+ | **Исключить устройства из маршрутизации** (`routing_excluded_ips`) | пусто | устройства, которых Forkop не трогает: ни трафик, ни DNS. Пункт **Система** означает сам роутер |
+ | **Сетевой интерфейс источника** (`source_network_interfaces`) | `br-lan` | откуда Forkop забирает трафик устройств. Гостевую сеть добавляют сюда, если она должна идти через Forkop |
+ | **Включить выходной сетевой интерфейс** (`enable_output_network_interface`), **Выходной сетевой интерфейс** (`output_network_interface`) | выключено | через какой интерфейс ядро выходит в интернет. Без настройки соединения ядра идут по маршрутам роутера, как у любой другой программы, с отдельными маршрутами к серверам, mwan3 и политикой маршрутизации. Задавайте интерфейс, только если ядро должно выходить через него в обход маршрутов. В списке те же провайдеры и туннели, что у поля [Сетевой интерфейс](/connections/interface#что-есть-в-списке) секции |
+diff --git a/fe-app-forkop/src/forkop/tabs/settings/form/network.ts b/fe-app-forkop/src/forkop/tabs/settings/form/network.ts
+index f0fb915e..1d908ea3 100644
+--- a/fe-app-forkop/src/forkop/tabs/settings/form/network.ts
++++ b/fe-app-forkop/src/forkop/tabs/settings/form/network.ts
+@@ -6,8 +6,33 @@ import {
+   SYSTEM_DEVICE_VALUE,
+ } from '../../../cbi/localDevices';
+ import { loadOutgoingDevices } from '../../../cbi/outgoingDevices';
++import {
++  configureDownloadSectionOption,
++  configureDownloadViaProxyFlag,
++} from '../sectionChoices';
+ 
+ export function addNetworkOptions(section: CBISection) {
++  // The global mode: everything the sections above left goes through one section, the
++  // router's traffic included, and DNS follows so queries do not leak past it.
++  let o = section.option(
++    form.Flag,
++    'route_all_enabled',
++    _('All traffic through a section'),
++    _(
++      'Everything the sections above did not take goes through the selected section: every device and the router itself. DNS requests go through it as well',
++    ),
++  );
++  configureDownloadViaProxyFlag(o, 'route_all_section');
++
++  o = section.option(
++    form.ListValue,
++    'route_all_section',
++    _('All traffic through'),
++  );
++  o.depends('route_all_enabled', '1');
++  o.retain = true;
++  configureDownloadSectionOption(o, 'route_all_section');
++
+   const excludedDevicesOption = section.option(
+     form.DynamicList,
+     'routing_excluded_ips',
+@@ -35,7 +60,7 @@ export function addNetworkOptions(section: CBISection) {
+     return createLocalDeviceDynamicListWidget(this, section_id, cfgvalue);
+   };
+ 
+-  let o = section.option(
++  o = section.option(
+     widgets.DeviceSelect,
+     'source_network_interfaces',
+     _('Source Network Interface'),
+diff --git a/fe-app-forkop/tests/bundle/optionLifecycle.test.js b/fe-app-forkop/tests/bundle/optionLifecycle.test.js
+index 5b594c9e..35939b8e 100644
+--- a/fe-app-forkop/tests/bundle/optionLifecycle.test.js
++++ b/fe-app-forkop/tests/bundle/optionLifecycle.test.js
+@@ -673,6 +673,8 @@ describe.each([
+           dns_detour_section: 'target',
+           download_lists_via_proxy: '1',
+           download_lists_via_proxy_section: 'target',
++          route_all_enabled: '1',
++          route_all_section: 'target',
+         },
+       ],
+       LIVE_SECTION,
+@@ -689,6 +691,7 @@ describe.each([
+     for (const name of [
+       'dns_detour_section',
+       'download_lists_via_proxy_section',
++      'route_all_section',
+     ]) {
+       expect(harness.uci.get('forkop', 'settings', name), name).toBe('target');
+     }
+diff --git a/fe-app-forkop/tests/bundle/settingsRoundTrip.test.js b/fe-app-forkop/tests/bundle/settingsRoundTrip.test.js
+index 961fec9b..3039e76a 100644
+--- a/fe-app-forkop/tests/bundle/settingsRoundTrip.test.js
++++ b/fe-app-forkop/tests/bundle/settingsRoundTrip.test.js
+@@ -478,6 +478,45 @@ describe('a tunnel dialog', () => {
+   });
+ });
+ 
++describe('the all-traffic mode', () => {
++  it('offers its picker the enabled connection sections', async () => {
++    const { section, sid } = buildSettings();
++    section.cfgsections = () => [sid];
++    await section.load();
++    const picker = section.children.find(
++      (option) => option.option === 'route_all_section',
++    );
++
++    expect(picker, 'the picker was not found').toBeTruthy();
++    expect(picker.keylist).toContain('live');
++    expect(picker.validate('settings', 'live')).toBe(true);
++    expect(picker.validate('settings', '')).not.toBe(true);
++  });
++
++  it('clears the chosen section when the mode is switched off and saved', async () => {
++    const { section, sid } = buildSettings();
++    Object.assign(harness.store.get('settings'), {
++      route_all_enabled: '1',
++      route_all_section: 'live',
++    });
++    section.cfgsections = () => [sid];
++    await section.load();
++    const flag = section.children.find(
++      (option) => option.option === 'route_all_enabled',
++    );
++    flag.formvalue = () => '0';
++    await parseEveryOption(section, sid);
++    section.children.forEach((option) => delete option.formvalue);
++
++    expect(harness.uci.get('forkop', 'settings', 'route_all_enabled')).toBe(
++      '0',
++    );
++    expect(harness.uci.get('forkop', 'settings', 'route_all_section')).toBe(
++      null,
++    );
++  });
++});
++
+ describe('a value behind a switch that is off', () => {
+   it('survives a save of the Settings page', async () => {
+     harness.uci.add('forkop', 'settings', 'settings');
+diff --git a/forkop/files/etc/config/forkop b/forkop/files/etc/config/forkop
+index 94c7beb9..d6c7a525 100644
+--- a/forkop/files/etc/config/forkop
++++ b/forkop/files/etc/config/forkop
+@@ -7,6 +7,7 @@ config settings 'settings'
+         option dns_detour_enabled '0'
+         option dns_timeout '10s'
+         list source_network_interfaces 'br-lan'
++        option route_all_enabled '0'
+         option enable_output_network_interface '0'
+         option enable_badwan_interface_monitoring '0'
+         option enable_yacd '0'
+diff --git a/forkop/files/usr/lib/config/validator.uc b/forkop/files/usr/lib/config/validator.uc
+index 47abfdee..78924acb 100644
+--- a/forkop/files/usr/lib/config/validator.uc
++++ b/forkop/files/usr/lib/config/validator.uc
+@@ -1702,6 +1702,13 @@ function validate_runtime_config(context) {
+     if (connections.download_via_proxy_enabled(settings, "warp_profiles"))
+         validate_warp_profile_section(connections.download_via_proxy_section(settings, "warp_profiles"));
+ 
++    if (bool_option(settings, "route_all_enabled", false)) {
++        let target_name = option(settings, "route_all_section", "");
++        if (target_name == "")
++            fail_validation("All traffic through a section is enabled, but no section is selected");
++        outbound_section(sections, "All traffic through a section", target_name);
++    }
++
+     validate_cascades(sections);
+     validate_subscription_download_sections(sections, context);
+     validate_json_inbound_values();
+diff --git a/forkop/files/usr/lib/diagnostics/checks.uc b/forkop/files/usr/lib/diagnostics/checks.uc
+index daf82f4f..3db20204 100644
+--- a/forkop/files/usr/lib/diagnostics/checks.uc
++++ b/forkop/files/usr/lib/diagnostics/checks.uc
+@@ -167,7 +167,9 @@ function bootstrap_host(values, servers, config) {
+         if (host != "" && !core_ip.valid_ip(host))
+             return host;
+     }
+-    if (!common.bool_option(values, "dns_detour_enabled", false))
++    // Detoured DNS, including the route-all mode's automatic detour, needs a resolvable
++    // server before the tunnel dials.
++    if (!common.bool_option(values, "dns_detour_enabled", false) && !common.bool_option(values, "route_all_enabled", false))
+         return "";
+     for (let outbound in config?.outbounds ?? []) {
+         let host = common.as_string(outbound?.server);
+diff --git a/forkop/files/usr/lib/nft/apply.uc b/forkop/files/usr/lib/nft/apply.uc
+index 924928e3..59bcf021 100644
+--- a/forkop/files/usr/lib/nft/apply.uc
++++ b/forkop/files/usr/lib/nft/apply.uc
+@@ -300,6 +300,21 @@ function add_fakeip_output() {
+             add_rule("mangle_output", [ pair[0], "daddr", pair[1], "meta", "l4proto", proto, "meta", "mark", "set", ROUTER_MARK, "counter" ]);
+ }
+ 
++// The route-all mode marks what the sections above left: every rule before it in the chains
++// already returned, so only excluded devices, local destinations, replies, port 53 and
++// OUTBOUND_MARK traffic reach direct. DNS keeps its own redirect chains.
++function route_all_selected(settings) {
++    return common.bool_option(settings, "route_all_enabled", false) &&
++        common.option(settings, "route_all_section", "") != "";
++}
++
++function add_route_all_rules(settings) {
++    if (!route_all_selected(settings))
++        return;
++    add_rule("priority_rules", [ "iifname", "@" + INTERFACES, "meta", "l4proto", "{ tcp, udp }", "meta", "mark", "set", FAKEIP_MARK, "counter", "accept" ]);
++    add_rule("priority_output_rules", [ "meta", "l4proto", "{ tcp, udp }", "meta", "mark", "set", ROUTER_MARK, "counter", "accept" ]);
++}
++
+ // Only loopback is captured, so the resolver's upstream queries never come back here;
+ // sing-box marks its own sockets, so its queries to the resolver pass.
+ function add_router_dns(excluded_router) {
+@@ -343,6 +358,7 @@ function build() {
+     add_base(settings, excluded.router, excluded.addresses);
+     for (let entry in planned.sections)
+         add_section_rules(entry.matchers);
++    add_route_all_rules(settings);
+     add_fakeip_output();
+     add_router_dns(excluded.router);
+     for (let entry in planned.sections)
+diff --git a/forkop/files/usr/lib/singbox/dns.uc b/forkop/files/usr/lib/singbox/dns.uc
+index d59bf7d4..f04d7da0 100644
+--- a/forkop/files/usr/lib/singbox/dns.uc
++++ b/forkop/files/usr/lib/singbox/dns.uc
+@@ -43,9 +43,13 @@ function server_list(settings, key, fallback) {
+ }
+ 
+ function detour_tag(settings) {
+-    if (!bool_option(settings, "dns_detour_enabled", false))
+-        return "";
+-    let section_name = option(settings, "dns_detour_section", "");
++    let section_name = "";
++    if (bool_option(settings, "dns_detour_enabled", false))
++        section_name = option(settings, "dns_detour_section", "");
++    else if (bool_option(settings, "route_all_enabled", false))
++        // Route-all resolves the main DNS servers through its section as well, so queries do
++        // not leak past the tunnel.
++        section_name = option(settings, "route_all_section", "");
+     return section_name == "" ? "" : runtime_constants.outbound_tag(connections.section_display_name(section_name));
+ }
+ 
+@@ -252,7 +256,9 @@ function config(settings) {
+ }
+ 
+ function default_domain_resolver(settings) {
+-    return bool_option(settings, "dns_detour_enabled", false)
++    // Detoured DNS, the explicit one or the route-all mode's automatic one, must not resolve
++    // the sections' own server names through the section: that would loop the resolution.
++    return detour_tag(settings) != ""
+         ? runtime_constants.BOOTSTRAP_DNS_SERVER_TAG
+         : runtime_constants.DNS_SERVER_TAG;
+ }
+diff --git a/forkop/files/usr/lib/singbox/generator.uc b/forkop/files/usr/lib/singbox/generator.uc
+index 7cdcf04a..7a3e662c 100644
+--- a/forkop/files/usr/lib/singbox/generator.uc
++++ b/forkop/files/usr/lib/singbox/generator.uc
+@@ -1703,6 +1703,32 @@ function add_service_route_rules(config, sections) {
+     });
+ }
+ 
++// The route-all mode sends what no section matched through the chosen section. The rule is
++// scoped to the tproxy inbounds, so server and service inbounds keep their own rules, and it
++// comes after every section rule, so Block and Bypass sections stay exceptions.
++function add_route_all_rule(config, settings, sections) {
++    if (!bool_option(settings, "route_all_enabled", false))
++        return;
++
++    let section_name = option(settings, "route_all_section", "");
++    if (section_name == "")
++        return;
++
++    let target = null;
++    for (let section in sections)
++        if (section[".name"] == section_name)
++            target = section;
++
++    if (target == null || !connections.is_connections_action(option(target, "action", "")))
++        runtime_generate_unsupported("all traffic section '" + section_name + "' is not an enabled connection section");
++
++    push(config.route.rules, {
++        action: "route",
++        inbound: tproxy_inbound_matcher(),
++        outbound: outbound_tag(section_name)
++    });
++}
++
+ function enabled_sections() {
+     let result = [];
+     for (let section in uci_core.section_objects(CONFIG_NAME, "section"))
+@@ -1854,6 +1880,7 @@ function build(context) {
+     add_service_route_rules(config, sections);
+     for (let section in sections)
+         add_route_for_section(config, section);
++    add_route_all_rule(config, settings, sections);
+     add_static_hosts_dns_rule(config, static_hosts);
+     add_source_aware_dns_fallback(config);
+     add_tunnel_dns_rules(config);
+diff --git a/luci-app-forkop/po/ru/forkop.po b/luci-app-forkop/po/ru/forkop.po
+index 3bf0eb5b..98a80030 100644
+--- a/luci-app-forkop/po/ru/forkop.po
++++ b/luci-app-forkop/po/ru/forkop.po
+@@ -7,8 +7,8 @@ msgid ""
+ msgstr ""
+ "Project-Id-Version: FORKOP\n"
+ "Report-Msgid-Bugs-To: \n"
+-"POT-Creation-Date: 2026-10-28 14:47+0300\n"
+-"PO-Revision-Date: 2026-10-28 14:47+0300\n"
++"POT-Creation-Date: 2026-11-01 01:39+0300\n"
++"PO-Revision-Date: 2026-11-01 01:39+0300\n"
+ "Last-Translator: ushan0v\n"
+ "Language-Team: none\n"
+ "Language: ru\n"
+@@ -293,6 +293,12 @@ msgstr "Все серверы"
+ msgid "All traffic from the device is forced through the section"
+ msgstr "Весь трафик устройства принудительно пойдёт через секцию"
+ 
++msgid "All traffic through"
++msgstr "Весь трафик через"
++
++msgid "All traffic through a section"
++msgstr "Весь трафик через секцию"
++
+ msgid "All traffic through the server"
+ msgstr "Весь трафик через сервер"
+ 
+@@ -854,6 +860,9 @@ msgstr "Включить доступ YACD WAN"
+ msgid "Ephemeral node"
+ msgstr "Временный узел"
+ 
++msgid "Everything the sections above did not take goes through the selected section: every device and the router itself. DNS requests go through it as well"
++msgstr "Всё, что не забрали секции выше, идёт через выбранную секцию: все устройства и сам роутер. DNS-запросы тоже идут через неё"
++
+ msgid "Exclude by pattern"
+ msgstr "Исключить по шаблону"
+ 
+diff --git a/tests/config/validator_references.test.uc b/tests/config/validator_references.test.uc
+index d8991cb2..1b014b68 100644
+--- a/tests/config/validator_references.test.uc
++++ b/tests/config/validator_references.test.uc
+@@ -121,4 +121,18 @@ t.test("rule sets are community names, http(s) URLs or absolute paths, never YAM
+         v.refuses(with_rule_sets("rule_set", [ reference ]), "is neither an http(s) URL nor an absolute path");
+ });
+ 
++function all_through(target, sections) {
++    return { settings: { route_all_enabled: "1", route_all_section: target }, section: sections };
++}
++
++t.test("all traffic through a section follows the same rules as the other references", () => {
++    v.accepts({ ...all_through("proxy", [ section("proxy", "connection") ]), connection_link: served([ "proxy" ]) });
++    v.refuses(all_through("", [ section("proxy", "connection") ]), "All traffic through a section is enabled, but no section is selected");
++    v.refuses(all_through("missing", [ section("proxy", "connection") ]), "points to section 'missing', which does not exist");
++    v.refuses({ ...all_through("proxy", [ section("proxy", "connection", { enabled: "0" }) ]), connection_link: served([ "proxy" ]) },
++        "points to section 'proxy', which is disabled");
++    v.refuses(all_through("bypass", [ section("bypass", "bypass") ]), "whose action is 'bypass'");
++    v.refuses(all_through("empty", [ section("empty", "connection") ]), "points to section 'empty', which has no servers");
++});
++
+ t.done();
+diff --git a/tests/diagnostics/checks.test.uc b/tests/diagnostics/checks.test.uc
+index 122f7fa5..9076221e 100644
+--- a/tests/diagnostics/checks.test.uc
++++ b/tests/diagnostics/checks.test.uc
+@@ -231,6 +231,16 @@ t.test("with DNS sent through a section, bootstrap finds the proxy servers", ()
+     t.eq([ value.bootstrap?.host, value.bootstrap?.ms ], [ "proxy.example", 5 ]);
+ });
+ 
++t.test("route-all detours the DNS the same way, so bootstrap finds the proxy servers too", () => {
++    fixture.seed({ settings: { dns_server: [ "8.8.8.8" ], bootstrap_dns_server: [ "77.88.8.8" ], route_all_enabled: "1",
++        route_all_section: "s1", config_path: dir + "/config.json" }, section: [ { ".name": "s1", label: "Proxy" } ] });
++    write_config({ outbounds: [ { type: "direct", tag: "direct-out" }, { type: "vless", tag: "a", server: "proxy.example" } ] });
++    dns_replies([ [ /@127\.0\.0\.42#53$/, rcode("NOERROR") ], [ /^localhost@/, rcode("NOERROR") ], [ /^proxy\.example@77\.88\.8\.8#53$/, rcode("NOERROR"), 5 ] ]);
++    let value = checks.dns();
++    stub.restore();
++    t.eq([ value.bootstrap?.host, value.bootstrap?.ms ], [ "proxy.example", 5 ]);
++});
++
+ t.test("the router's own traffic is checked the way a client's goes, and the exit through the first section", () => {
+     fixture.seed({ settings: { config_path: dir + "/config.json" } });
+     write_config({ route: { rules: [ { action: "sniff" }, { action: "route", inbound: [ "tproxy-in" ], outbound: "Main", domain: "ip.podkop.fyi" } ] } });
+diff --git a/tests/nft/apply.test.uc b/tests/nft/apply.test.uc
+index 49a151fd..36a7b43f 100644
+--- a/tests/nft/apply.test.uc
++++ b/tests/nft/apply.test.uc
+@@ -459,4 +459,31 @@ t.test("bridge netfilter is switched off only where it is on", () => {
+     t.eq(length(logs), 1);
+ });
+ 
++t.test("route-all marks what the sections left: after them, past the exclusions", () => {
++    let settings = { route_all_enabled: "1", route_all_section: "vpn", routing_excluded_ips: "192.168.1.50 @system" };
++    let lines = script_lines({ settings, section: priority_sections() });
++    let lan = T + "priority_rules iifname @forkop_interfaces meta l4proto { tcp, udp } meta mark set 0x04000000 counter accept";
++    let output = T + "priority_output_rules meta l4proto { tcp, udp } meta mark set 0x10000000 counter accept";
++    has(lines, lan, "the remaining client traffic");
++    has(lines, output, "the router's own traffic");
++    before(lines, T + "priority_rules iifname @forkop_interfaces ip6 daddr != @localv6 " +
++        "ip6 daddr @forkop_rule_ip_and_ports_subnets6 udp dport @forkop_rule_ip_and_ports_ports meta mark set 0x04000000 counter accept",
++        lan, "the sections keep their priority");
++    before(lines, T + "priority_output_rules ip6 daddr != @localv6 ip6 daddr @forkop_rule_ip_and_ports_subnets6 udp dport @forkop_rule_ip_and_ports_ports meta mark set 0x10000000 counter accept",
++        output, "the sections keep their priority over the router's traffic too");
++    before(lines, T + "mangle ip saddr @forkop_excluded counter return", lan, "an excluded device stays direct");
++    before(lines, T + "mangle_output counter return", output, "the excluded System stays direct");
++
++    let bare = script_lines({ settings: { route_all_enabled: "1", route_all_section: "vpn" } });
++    t.ok(index(bare, lan) >= 0 && index(bare, output) >= 0, "nft marks without asking which section it is");
++});
++
++t.test("route-all stays off unless the flag and the section are both set", () => {
++    for (let settings in [ {}, { route_all_section: "vpn" }, { route_all_enabled: "1" } ]) {
++        let lines = script_lines({ settings, section: priority_sections() });
++        lacks(lines, "meta l4proto { tcp, udp } meta mark set 0x04000000 counter accept", "no client catch-all");
++        lacks(lines, "meta l4proto { tcp, udp } meta mark set 0x10000000 counter accept", "no router catch-all");
++    }
++});
++
+ t.done();
+diff --git a/tests/singbox/generator_route_all.test.uc b/tests/singbox/generator_route_all.test.uc
+new file mode 100644
+index 00000000..745d340c
+--- /dev/null
++++ b/tests/singbox/generator_route_all.test.uc
+@@ -0,0 +1,87 @@
++let t = require("t");
++let fixture = require("fixture");
++let generator = require("singbox.generator");
++let q = require("sbconfig");
++
++function build(data, context) {
++    fixture.seed(data);
++    return generator.build(context ?? { service_address: "127.0.0.1" });
++}
++
++function refused(data) {
++    return t.throws(() => build(data)).message;
++}
++
++function section(name, extra) {
++    return { ".name": name, enabled: "1", action: "connection", outbound_jsons: [ "{\"type\":\"direct\"}" ], ...(extra ?? {}) };
++}
++
++const TPROXY_INBOUNDS = [ "tproxy-in", "tproxy6-in", "system-in", "system6-in" ];
++
++function is_route_all_rule(r) {
++    return r.outbound == "vpn" && r.domain == null &&
++        r.ip_cidr == null && r.source_ip_cidr == null && r.inbound != null;
++}
++
++function route_all_rule(config) {
++    return q.route_rule(config, is_route_all_rule);
++}
++
++t.test("route-all sends what no section matched through its section, after them", () => {
++    let d = build({
++        settings: fixture.settings({ route_all_enabled: "1", route_all_section: "vpn" }),
++        section: [ section("vpn"), section("narrow", { destinations: "203.0.113.0/24" }) ]
++    });
++    let all = route_all_rule(d);
++    t.eq(all.action, "route");
++    t.eq(all.inbound, TPROXY_INBOUNDS, "every captured inbound, the clients and the router");
++
++    let narrow_at = q.route_rule_index(d, (r) => r.outbound == "narrow" && r.ip_cidr != null && index(r.ip_cidr, "203.0.113.0/24") >= 0);
++    t.ok(narrow_at >= 0, "the narrow section rule exists");
++    t.ok(q.route_rule_index(d, is_route_all_rule) > narrow_at, "sections keep their priority over route-all");
++    t.ok(q.route_rule_index(d, (r) => r.domain == "ip.podkop.fyi") < q.route_rule_index(d, is_route_all_rule),
++        "the exit check keeps the section it names");
++});
++
++t.test("route-all stays off unless the settings ask for it", () => {
++    let off = build({ settings: fixture.settings({ route_all_section: "vpn" }), section: [ section("vpn") ] });
++    t.eq(route_all_rule(off), null, "the flag is off");
++
++    let empty = build({ settings: fixture.settings({ route_all_enabled: "1" }), section: [ section("vpn") ] });
++    t.eq(route_all_rule(empty), null, "the flag is on, but no section is selected");
++});
++
++t.test("route-all refuses a target that is not an enabled connection section", () => {
++    t.eq(refused({ settings: fixture.settings({ route_all_enabled: "1", route_all_section: "gone" }),
++        section: [ section("vpn") ] }), "all traffic section 'gone' is not an enabled connection section");
++    t.eq(refused({ settings: fixture.settings({ route_all_enabled: "1", route_all_section: "off" }),
++        section: [ section("vpn"), section("off", { enabled: "0" }) ] }),
++        "all traffic section 'off' is not an enabled connection section");
++    t.eq(refused({ settings: fixture.settings({ route_all_enabled: "1", route_all_section: "deny" }),
++        section: [ section("vpn"), { ".name": "deny", enabled: "1", action: "block", destinations: "ads.example" } ] }),
++        "all traffic section 'deny' is not an enabled connection section");
++});
++
++t.test("route-all resolves the main DNS through its section", () => {
++    let d = build({ settings: fixture.settings({ route_all_enabled: "1", route_all_section: "vpn" }), section: [ section("vpn") ] });
++    let main = q.dns_server_tag(d, "dns-server");
++    for (let tag in main.servers)
++        t.eq(q.dns_server_tag(d, tag).detour, "vpn", "the main server goes through the section");
++    t.eq(d.route.default_domain_resolver, "bootstrap-dns-server",
++        "the sections' own server names resolve through the bootstrap, never through the section");
++
++    let explicit = build({ settings: fixture.settings({ route_all_enabled: "1", route_all_section: "vpn",
++        dns_detour_enabled: "1", dns_detour_section: "other" }),
++        section: [ section("vpn"), section("other") ] });
++    let other = q.dns_server_tag(explicit, "dns-server");
++    for (let tag in other.servers)
++        t.eq(q.dns_server_tag(explicit, tag).detour, "other", "an explicit DNS detour wins over route-all");
++
++    let plain = build({ settings: fixture.settings(), section: [ section("vpn") ] });
++    let direct = q.dns_server_tag(plain, "dns-server");
++    for (let tag in direct.servers)
++        t.eq(q.dns_server_tag(plain, tag).detour, null, "without the modes the main DNS goes nowhere special");
++    t.eq(plain.route.default_domain_resolver, "dns-server");
++});
++
++t.done();

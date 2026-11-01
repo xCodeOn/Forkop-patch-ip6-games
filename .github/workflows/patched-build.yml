@@ -1,0 +1,156 @@
+name: Build patched packages
+
+# Собирает пакеты Forkop с патчами из patchip6/ поверх выбранной версии исходников:
+# чекаутит чужой тег, накладывает патчи, пересобирает веб-интерфейс, прогоняет тесты
+# и запускает родной build.sh. Артефакт содержит *_all.ipk и *_all.apk всех пакетов.
+# Обновление на новую версию upstream: впишите её тег в source_ref и запустите снова.
+
+on:
+  workflow_dispatch:
+    inputs:
+      source_repo:
+        description: "Чей исходный код патчим"
+        type: string
+        default: "ushan0v/forkop"
+      source_ref:
+        description: "Тег или ветка исходников, например v2.0.1 (пусто — последний релиз)"
+        type: string
+        default: ""
+      package_version:
+        description: "Версия пакетов x.y.z (пусто — номер тега исходников)"
+        type: string
+        default: ""
+      apply_route_all:
+        description: "Патч 0001: режим «Весь трафик через секцию»"
+        type: boolean
+        default: true
+      apply_aaaa:
+        description: "Патч 0002: пустые ответы AAAA без глобального IPv6"
+        type: boolean
+        default: true
+      run_tests:
+        description: "Прогнать ucode-тесты после патчей"
+        type: boolean
+        default: true
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Patch and build
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5.0.0
+
+      - name: Resolve the source ref
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ inputs.source_repo }}
+          REF: ${{ inputs.source_ref }}
+        run: |
+          if [ -n "$REF" ]; then echo "ref=$REF" >> "$GITHUB_ENV"; exit 0; fi
+          tag=$(gh api "repos/$REPO/releases/latest" --jq .tag_name)
+          echo "Using the latest release: $tag"
+          echo "ref=$tag" >> "$GITHUB_ENV"
+
+      - name: Check out the sources
+        uses: actions/checkout@v5.0.0
+        with:
+          repository: ${{ inputs.source_repo }}
+          ref: ${{ env.ref }}
+          path: forkop-src
+
+      - name: Apply the patches
+        working-directory: forkop-src
+        run: |
+          apply() {
+            local f="$1"
+            if git apply -v "$f" 2>/dev/null; then
+              echo "git apply: $f"
+              return 0
+            fi
+            echo "git apply failed on $f, falling back to patch -p1"
+            patch -p1 --fuzz=10 < "$f"
+          }
+          if [ "${{ inputs.apply_route_all }}" = "true" ]; then
+            apply "$GITHUB_WORKSPACE/patchip6/patches/0001-add-all-traffic-through-section-mode.patch"
+          fi
+          if [ "${{ inputs.apply_aaaa }}" = "true" ]; then
+            apply "$GITHUB_WORKSPACE/patchip6/patches/0002-suppress-aaaa-without-global-ipv6.patch"
+          fi
+          git status --short
+
+      - name: Set up Node
+        uses: actions/setup-node@v5.0.0
+        with:
+          node-version: '22'
+
+      - name: Enable Corepack
+        run: corepack enable
+
+      - name: Build the web interface
+        working-directory: forkop-src/fe-app-forkop
+        run: |
+          yarn install --frozen-lockfile
+          yarn locales
+          yarn build
+
+      - name: Run the ucode tests
+        if: ${{ inputs.run_tests }}
+        continue-on-error: true
+        run: |
+          git clone --depth 1 --branch v0.0.20250529 https://github.com/jow-/ucode.git /tmp/ucode
+          cmake -S /tmp/ucode -B /tmp/ucode/build \
+            -DUBUS_SUPPORT=OFF -DUCI_SUPPORT=OFF -DULOOP_SUPPORT=OFF
+          cmake --build /tmp/ucode/build --parallel
+          sudo cmake --install /tmp/ucode/build
+          sudo ldconfig
+          cd forkop-src
+          tests/run.sh
+
+      - name: Install the package build dependencies
+        run: |
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+          sudo apt-get update
+          sudo apt-get install -y build-essential curl fakeroot file gawk git patch perl tar unzip util-linux xz-utils zstd
+
+      - name: Version
+        env:
+          REF: ${{ env.ref }}
+          PKG: ${{ inputs.package_version }}
+        run: |
+          v=${PKG:-$REF}
+          v=${v#v}
+          echo "ver=$v" >> "$GITHUB_ENV"
+
+      - name: Build the packages
+        run: ./forkop-src/build.sh "$ver" "$PWD/release"
+
+      - name: Upload the packages
+        uses: actions/upload-artifact@v4.6.2
+        with:
+          name: patched-packages-${{ env.ver }}
+          path: release/*
+          if-no-files-found: error
+
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: v${{ env.ver }}
+          ROUTE_ALL: ${{ inputs.apply_route_all }}
+          AAAA: ${{ inputs.apply_aaaa }}
+        run: |
+          set -euo pipefail
+          notes="Пакеты Forkop ${ver#v} с патчами этого репозитория."
+          notes="$notes"$'\n\nСостав патчей:'
+          if [ "$ROUTE_ALL" = "true" ]; then notes="$notes"$'\n- весь трафик через одну секцию: галочка в Настройки → Сеть'; fi
+          if [ "$AAAA" = "true" ]; then notes="$notes"$'\n- пустые ответы AAAA, когда у роутера нет глобального IPv6 — игровые клиенты и другие приложения, которые стучатся по IPv6 первыми, не зависают'; fi
+          notes="$notes"$'\n\nЯдро sing-box-forkop ставится отдельно, как у официального Forkop.'
+          if gh release view "$TAG" --json isDraft --jq .isDraft >/dev/null 2>&1; then
+            gh release upload "$TAG" --clobber -- release/*
+            echo "Release $TAG updated"
+          else
+            gh release create "$TAG" --title "$TAG" --notes "$notes" -- release/*
+            echo "Release $TAG created"
+          fi

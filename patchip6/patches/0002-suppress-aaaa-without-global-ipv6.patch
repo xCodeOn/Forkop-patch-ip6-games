@@ -1,0 +1,181 @@
+diff --git a/docs/dns/index.md b/docs/dns/index.md
+index d9918ab0..70f33734 100644
+--- a/docs/dns/index.md
++++ b/docs/dns/index.md
+@@ -65,4 +65,8 @@ DNS-серверы задаются на вкладке **Настройки**.
+ 
+ Фильтрующий DNS не ставьте в параллельный режим рядом с обычным. Ответ придёт от того, кто быстрее, и реклама будет то блокироваться, то нет.
+ 
++## AAAA без IPv6-интернета
++
++Если у роутера нет глобального IPv6-адреса — провайдер даёт только IPv4, — Forkop отвечает на AAAA-запросы устройств пустым ответом. Устройства сразу идут по IPv4-адресу, и приложения, которые стучатся по IPv6 первыми, игровые клиенты по UDP среди них, не зависают на адресах, до которых нет хода. С глобальным IPv6-адресом ответы AAAA работают как раньше.
++
+ Остальные параметры DNS описаны на странице [Настройки](/settings#dns).
+diff --git a/forkop/files/usr/lib/nft/state.uc b/forkop/files/usr/lib/nft/state.uc
+index 22d90b5c..5a1a3e2c 100644
+--- a/forkop/files/usr/lib/nft/state.uc
++++ b/forkop/files/usr/lib/nft/state.uc
+@@ -9,7 +9,8 @@ const PAUSE_CHAIN = constants.NFT_PAUSE_CHAIN_NAME;
+ const SOURCE_CHECK_PRIORITY = "104";
+ 
+ let paths = {
+-    ipv6_conf: "/proc/sys/net/ipv6/conf"
++    ipv6_conf: "/proc/sys/net/ipv6/conf",
++    if_inet6: "/proc/net/if_inet6"
+ };
+ 
+ let as_string = common.as_string;
+@@ -165,6 +166,21 @@ function ipv6_enabled() {
+     return length(ipv6_interfaces() ?? []) > 0;
+ }
+ 
++// Whether any interface holds a global IPv6 address (2000::/3), which is what makes an
++// AAAA answer point somewhere reachable. A ULA address does not count: without a global
++// one, no AAAA answer the network can hand out is any good.
++function ipv6_global_address_present() {
++    let text = fs.readfile(paths.if_inet6);
++    if (text == null)
++        return false;
++    for (let line in split(text, "\n")) {
++        let fields = normalized_fields(line);
++        if (length(fields) > 0 && match(fields[0], /^[23]/) != null)
++            return true;
++    }
++    return false;
++}
++
+ function tproxy_route4_present(table) {
+     return has_local_default_route_text(command_output_from_args([ IP_BIN, "route", "list", "table", table ]), 4);
+ }
+@@ -267,6 +283,7 @@ return {
+     paths,
+     ipv6_interfaces,
+     ipv6_enabled,
++    ipv6_global_address_present,
+     table_present,
+     runtime_network_configured_snapshot,
+     runtime_network_configured,
+diff --git a/forkop/files/usr/lib/singbox/generator.uc b/forkop/files/usr/lib/singbox/generator.uc
+index 7a3e662c..5273ac3c 100644
+--- a/forkop/files/usr/lib/singbox/generator.uc
++++ b/forkop/files/usr/lib/singbox/generator.uc
+@@ -9,6 +9,7 @@ let runtime_servers = require("singbox.servers");
+ let runtime_tailscale = require("singbox.tailscale");
+ let subscription_headers_module = require("singbox.subscription_headers");
+ let runtime_urltest = require("singbox.urltest");
++let runtime_state = require("nft.state");
+ let connections = require("config.connections");
+ let runtime_settings_cache = null;
+ 
+@@ -240,6 +241,11 @@ function base_config(settings, service_address) {
+     if (dns_config.unsupported)
+         runtime_generate_unsupported(dns_config.unsupported);
+ 
++    // Without a global IPv6 address nothing an AAAA answer points to is reachable, and a
++    // client that dials one first, a game client over UDP among them, hangs. The fakeip
++    // server answers AAAA queries with an empty response when it has no inet6 range, and the
++    // first rule catches the AAAA queries no domain rule takes, upstream answers included.
++    let ipv6_internet = runtime_state.ipv6_global_address_present();
+     let dns_rules = [
+         { action: "reject", query_type: "HTTPS" },
+         { action: "reject", domain_suffix: "use-application-dns.net" },
+@@ -251,6 +257,13 @@ function base_config(settings, service_address) {
+             domain: [ runtime_constants.FAKEIP_TEST_DOMAIN, runtime_constants.CHECK_PROXY_IP_DOMAIN ]
+         }
+     ];
++    if (!ipv6_internet)
++        unshift(dns_rules, {
++            inbound: [ runtime_constants.SOURCE_DNS_INBOUND_TAG, runtime_constants.SYSTEM_DNS_INBOUND_TAG ],
++            action: "route",
++            server: runtime_constants.FAKEIP_DNS_SERVER_TAG,
++            query_type: [ "AAAA" ]
++        });
+     let ntp_servers = ntp_server_names();
+     if (length(ntp_servers) > 0)
+         push(dns_rules, { inbound: runtime_constants.SYSTEM_DNS_INBOUND_TAG, action: "route", server: runtime_constants.BOOTSTRAP_DNS_SERVER_TAG, domain: ntp_servers });
+@@ -258,12 +271,14 @@ function base_config(settings, service_address) {
+     let dns_servers = [];
+     for (let server in dns_config.servers)
+         push(dns_servers, server);
+-    push(dns_servers, {
++    let fakeip_server = {
+         type: "fakeip",
+         tag: runtime_constants.FAKEIP_DNS_SERVER_TAG,
+-        inet4_range: runtime_constants.FAKEIP_INET4_RANGE,
+-        inet6_range: runtime_constants.FAKEIP_INET6_RANGE
+-    });
++        inet4_range: runtime_constants.FAKEIP_INET4_RANGE
++    };
++    if (ipv6_internet)
++        fakeip_server.inet6_range = runtime_constants.FAKEIP_INET6_RANGE;
++    push(dns_servers, fakeip_server);
+ 
+     let inbounds = [
+         { type: "tproxy", tag: runtime_constants.TPROXY_INBOUND_TAG, listen: runtime_constants.TPROXY_INBOUND_ADDRESS, listen_port: runtime_constants.TPROXY_INBOUND_PORT, tcp_fast_open: true, udp_fragment: true },
+diff --git a/tests/lib/fixture.uc b/tests/lib/fixture.uc
+index 810d8537..f9520a28 100644
+--- a/tests/lib/fixture.uc
++++ b/tests/lib/fixture.uc
+@@ -61,6 +61,9 @@ function seed(data) {
+         uci.__seed("dhcp", [ { ".type": "dnsmasq", ...data.dhcp_dnsmasq } ]);
+     if (data.system_ntp != null)
+         uci.__seed("system", [ { ".type": "timeserver", ".name": "ntp", ...data.system_ntp } ]);
++
++    // A global IPv6 address by default, which is what most networks and tests assume.
++    ipv6_global_address(true);
+ }
+ 
+ // The settings every generated configuration needs, merged with the test's own.
+@@ -86,4 +89,15 @@ function kernel_ipv6(interfaces) {
+     }
+ }
+ 
+-return { seed, settings, links, kernel_ipv6 };
++// Whether the test network holds a global IPv6 address (2000::/3), which is what the
++// generator reads from /proc to decide on AAAA answers. Default is present, as on the
++// networks most setups have; the AAAA suppression tests write a ULA-only one over this.
++function ipv6_global_address(present) {
++    let state = require("nft.state");
++    state.paths.if_inet6 = require("stub").tmpdir() + "/if_inet6";
++    fs.writefile(state.paths.if_inet6, present
++        ? "2001:db8::1 2 eth0 00\n"
++        : "fd84:2881:b789::1 2 br-lan 60 40\n");
++}
++
++return { seed, settings, links, kernel_ipv6, ipv6_global_address };
+diff --git a/tests/singbox/generator_dns.test.uc b/tests/singbox/generator_dns.test.uc
+index 8b218993..c4caf1f4 100644
+--- a/tests/singbox/generator_dns.test.uc
++++ b/tests/singbox/generator_dns.test.uc
+@@ -226,4 +226,31 @@ t.test("DNS timeout reaches the core as configured", () => {
+     t.eq(config.experimental.cache_file.store_subscriptions, true);
+ });
+ 
++t.test("without a global IPv6 address the LAN receives no AAAA answers", () => {
++    fixture.seed({
++        settings: { dns_server: [ "77.88.8.8" ], bootstrap_dns_server: [ "77.88.8.8" ] },
++        section: [ { ".name": "direct", enabled: "1", action: "bypass", destinations: "example.org" } ]
++    });
++    fixture.ipv6_global_address(false);
++    let d = generator.build({ service_address: "192.168.1.1" });
++    t.eq(q.dns_server_tag(d, "fakeip-server").inet6_range, null, "the fakeip server holds no v6 pool");
++    let first = d.dns.rules[0];
++    t.eq([ first.inbound, first.query_type, first.server, first.action ],
++        [ [ "source-dns-in", "system-dns-in" ], [ "AAAA" ], "fakeip-server", "route" ],
++        "every AAAA query the LAN asks ends in an empty answer");
++    t.eq(q.dns_server_tag(d, "fakeip-server").inet4_range, "198.18.0.0/16", "the v4 pool stays");
++});
++
++t.test("a global IPv6 address keeps the AAAA answers as they were", () => {
++    fixture.seed({
++        settings: { dns_server: [ "77.88.8.8" ], bootstrap_dns_server: [ "77.88.8.8" ] },
++        section: [ { ".name": "direct", enabled: "1", action: "bypass", destinations: "example.org" } ]
++    });
++    fixture.ipv6_global_address(true);
++    let d = generator.build({ service_address: "192.168.1.1" });
++    t.eq(q.dns_server_tag(d, "fakeip-server").inet6_range, "2001:2::/112");
++    t.eq(q.dns_rule(d, (r) => r.inbound != null && r.query_type != null &&
++        length(r.query_type) == 1 && r.query_type[0] == "AAAA"), null, "no catch-all AAAA rule");
++});
++
+ t.done();
