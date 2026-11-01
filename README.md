@@ -15,7 +15,7 @@
 [![Релиз](https://img.shields.io/github/v/release/xCodeOn/Forkop-patch-ip6-games?label=патч&color=0d9488)](../../releases/latest)
 [![Лицензия](https://img.shields.io/badge/лицензия-GPL--2.0--or--later-blue)](LICENSE)
 
-<a href="https://pay.cloudtips.ru/p/22326183"><img alt="Support the project" src="https://img.shields.io/badge/%E2%9D%A4%EF%B8%8F_Support_the_project-CloudTips-8b5cf6?style=for-the-badge"></a>
+<a href="https://pay.cloudtips.ru/p/22326183"><img alt="Поддержать проект" src="https://img.shields.io/badge/%E2%9D%A4%EF%B8%8F_%D0%9F%D0%BE%D0%B4%D0%B4%D0%B5%D1%80%D0%B6%D0%B0%D1%82%D1%8C%20%D0%BF%D1%80%D0%BE%D0%B5%D0%BA%D1%82-CloudTips-8b5cf6?style=for-the-badge"></a>
 
 </div>
 
@@ -98,7 +98,7 @@ hot-patch-пак в релиз. Вышла новая версия Forkop — з
 
 <div align="center">
 
-<a href="https://pay.cloudtips.ru/p/22326183"><img alt="Support the project" src="https://img.shields.io/badge/%E2%9D%A4%EF%B8%8F_Support_the_project-CloudTips-8b5cf6?style=for-the-badge"></a>
+<a href="https://pay.cloudtips.ru/p/22326183"><img alt="Поддержать проект" src="https://img.shields.io/badge/%E2%9D%A4%EF%B8%8F_%D0%9F%D0%BE%D0%B4%D0%B4%D0%B5%D1%80%D0%B6%D0%B0%D1%82%D1%8C%20%D0%BF%D1%80%D0%BE%D0%B5%D0%BA%D1%82-CloudTips-8b5cf6?style=for-the-badge"></a>
 
 </div>
 
