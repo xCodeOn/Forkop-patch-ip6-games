@@ -136,8 +136,6 @@ jobs:
                    bundle/files/usr/lib/forkop/config bundle/files/usr/lib/forkop/diagnostics \
                    bundle/files/www/luci-static/resources/view/forkop \
                    bundle/files/usr/lib/lua/luci/i18n
-                   bundle/files/usr/lib/forkop/config bundle/files/usr/lib/forkop/diagnostics \
-                   bundle/files/www/luci-static/resources/view/forkop
           SRC=forkop-src/forkop/files/usr/lib
           cp "$SRC/nft/state.uc" "$SRC/nft/apply.uc" bundle/files/usr/lib/forkop/nft/
           cp "$SRC/singbox/generator.uc" "$SRC/singbox/dns.uc" bundle/files/usr/lib/forkop/singbox/
