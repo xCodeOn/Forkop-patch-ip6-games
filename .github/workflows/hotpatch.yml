@@ -120,11 +120,22 @@ jobs:
           v=${v#v}
           echo "ver=$v" >> "$GITHUB_ENV"
 
+      - name: Build po2lmo
+        run: |
+          git clone --depth 1 https://github.com/openwrt/luci.git /tmp/luci
+          cd /tmp/luci/modules/luci-base/src
+          cc -std=gnu17 -o contrib/lemon contrib/lemon.c
+          ./contrib/lemon -q lib/plural_formula.y
+          cc -o po2lmo po2lmo.c lib/lmo.c lib/plural_formula.c
+
       - name: Assemble the hot-patch bundle
         env:
           VER: ${{ env.ver }}
         run: |
           mkdir -p bundle/files/usr/lib/forkop/nft bundle/files/usr/lib/forkop/singbox \
+                   bundle/files/usr/lib/forkop/config bundle/files/usr/lib/forkop/diagnostics \
+                   bundle/files/www/luci-static/resources/view/forkop \
+                   bundle/files/usr/lib/lua/luci/i18n
                    bundle/files/usr/lib/forkop/config bundle/files/usr/lib/forkop/diagnostics \
                    bundle/files/www/luci-static/resources/view/forkop
           SRC=forkop-src/forkop/files/usr/lib
@@ -134,11 +145,14 @@ jobs:
           cp "$SRC/diagnostics/checks.uc" bundle/files/usr/lib/forkop/diagnostics/
           cp forkop-src/luci-app-forkop/htdocs/luci-static/resources/view/forkop/main.js \
              bundle/files/www/luci-static/resources/view/forkop/main.js
+          /tmp/luci/modules/luci-base/src/po2lmo \
+            forkop-src/luci-app-forkop/po/ru/forkop.po             bundle/files/usr/lib/lua/luci/i18n/forkop.ru.lmo
           printf '{"base": "%s"}\n' "$VER" > bundle/hotpatch.json
           ( cd bundle/files && sha256sum usr/lib/forkop/nft/state.uc usr/lib/forkop/nft/apply.uc \
               usr/lib/forkop/singbox/generator.uc usr/lib/forkop/singbox/dns.uc \
               usr/lib/forkop/config/validator.uc usr/lib/forkop/diagnostics/checks.uc \
-              www/luci-static/resources/view/forkop/main.js > ../SHA256SUMS )
+              www/luci-static/resources/view/forkop/main.js \
+              usr/lib/lua/luci/i18n/forkop.ru.lmo > ../SHA256SUMS )
           tar -czf hotpatch.tar.gz -C bundle files hotpatch.json SHA256SUMS
           echo "bundle: $(tar -tzf hotpatch.tar.gz | wc -l) entries"
 
