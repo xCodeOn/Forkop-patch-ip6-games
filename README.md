@@ -58,14 +58,15 @@ patch -p1 --fuzz=10 < ../0002-suppress-aaaa-without-global-ipv6.patch
 
 ## Поддержать
 
-Сам проект **Forkop** делает [ushan0v](https://github.com/ushan0v) — патчи здесь лишь
-надстройка. Поблагодарить автора базы можно так:
+Патчи бесплатны и делаются в свободное время. Если они полезны, лучшее спасибо — звезда и донат:
 
-* 💳 **Карты РФ / СБП / Tinkoff Pay:** [Донат на CloudTips](https://pay.cloudtips.ru/p/385e5af2)
-* 💎 **USDT (сеть TON):** `UQAOCDav39WJ2gvnzs9RQ_IsF2dcGrcpw4U0j6XGO7je7uwm`
-* 🟢 **USDT (сеть TRC-20):** `TEMaZFyM8RQpkbd5LvB8CFJwxCyhHauKAe`
-* 🪙 **USDT (ERC-20 / BEP-20 / Polygon / Monad):** `0xe8aabb21c320240fe45b6087e68c6fe40a92d8bf`
-* 🟠 **USDT (сеть Solana):** `AhhUjTci9zDKQjUfgLacFR4LiHX9nmZud6DZ8YdbpjEB`
+<div align="center">
+
+<a href="https://pay.cloudtips.ru/p/22326183"><img alt="Support the project" src="https://img.shields.io/badge/%E2%9D%A4%EF%B8%8F_Support_the_project-CloudTips-8b5cf6?style=for-the-badge"></a>
+
+</div>
+
+База — проект [Forkop](https://github.com/ushan0v/forkop) от [ushan0v](https://github.com/ushan0v).
 
 ## Лицензия
 
