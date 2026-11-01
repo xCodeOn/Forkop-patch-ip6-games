@@ -113,24 +113,13 @@ index 7a3e662c..5273ac3c 100644
      let inbounds = [
          { type: "tproxy", tag: runtime_constants.TPROXY_INBOUND_TAG, listen: runtime_constants.TPROXY_INBOUND_ADDRESS, listen_port: runtime_constants.TPROXY_INBOUND_PORT, tcp_fast_open: true, udp_fragment: true },
 diff --git a/tests/lib/fixture.uc b/tests/lib/fixture.uc
-index 810d8537..f9520a28 100644
+index 810d8537..d6f1b9eb 100644
 --- a/tests/lib/fixture.uc
 +++ b/tests/lib/fixture.uc
-@@ -61,6 +61,9 @@ function seed(data) {
-         uci.__seed("dhcp", [ { ".type": "dnsmasq", ...data.dhcp_dnsmasq } ]);
-     if (data.system_ntp != null)
-         uci.__seed("system", [ { ".type": "timeserver", ".name": "ntp", ...data.system_ntp } ]);
-+
-+    // A global IPv6 address by default, which is what most networks and tests assume.
-+    ipv6_global_address(true);
+@@ -41,6 +41,17 @@ function listed(data, type_name) {
+     return type(value) == "array" ? value : [];
  }
  
- // The settings every generated configuration needs, merged with the test's own.
-@@ -86,4 +89,15 @@ function kernel_ipv6(interfaces) {
-     }
- }
- 
--return { seed, settings, links, kernel_ipv6 };
 +// Whether the test network holds a global IPv6 address (2000::/3), which is what the
 +// generator reads from /proc to decide on AAAA answers. Default is present, as on the
 +// networks most setups have; the AAAA suppression tests write a ULA-only one over this.
@@ -142,6 +131,24 @@ index 810d8537..f9520a28 100644
 +        : "fd84:2881:b789::1 2 br-lan 60 40\n");
 +}
 +
+ function seed(data) {
+     data = data ?? {};
+     uci.__reset();
+@@ -61,6 +72,9 @@ function seed(data) {
+         uci.__seed("dhcp", [ { ".type": "dnsmasq", ...data.dhcp_dnsmasq } ]);
+     if (data.system_ntp != null)
+         uci.__seed("system", [ { ".type": "timeserver", ".name": "ntp", ...data.system_ntp } ]);
++
++    // A global IPv6 address by default, which is what most networks and tests assume.
++    ipv6_global_address(true);
+ }
+ 
+ // The settings every generated configuration needs, merged with the test's own.
+@@ -86,4 +100,4 @@ function kernel_ipv6(interfaces) {
+     }
+ }
+ 
+-return { seed, settings, links, kernel_ipv6 };
 +return { seed, settings, links, kernel_ipv6, ipv6_global_address };
 diff --git a/tests/singbox/generator_dns.test.uc b/tests/singbox/generator_dns.test.uc
 index 8b218993..c4caf1f4 100644
