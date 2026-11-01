@@ -1,9 +1,9 @@
 name: Build hot-patch
 
-# Собирает hot-patch-пак для установленного Forkop: чекаутит выбранный тег upstream,
-# накладывает патчи этого репозитория, пересобирает веб-интерфейс и публикует в релизе
-# архив hotpatch.tar.gz, который ставит на роутер install.sh одной командой.
-# Обновление: вышел новый Forkop — запустите с его тегом.
+# Собирает hot-patch-паки для установленного Forkop: накладывает патчи этого
+# репозитория на выбранный тег upstream, пересобирает веб-интерфейс, прогоняет
+# тесты и публикует в релизе архивы, которые ставят install.sh (2.x) и
+# install-1.0.5.sh (1.0.x). Обновление: вышел новый Forkop — запустите с его тегом.
 
 on:
   workflow_dispatch:
@@ -13,23 +13,27 @@ on:
         type: string
         default: "ushan0v/forkop"
       source_ref:
-        description: "Тег или ветка исходников, например 2.0.0 (пусто — последний релиз)"
+        description: "Тег или ветка исходников 2.x, например 2.0.0 (пусто — последний релиз)"
         type: string
         default: ""
+      ref_105:
+        description: "Тег исходников для патча 1.0.5"
+        type: string
+        default: "1.0.5"
       package_version:
         description: "Базовая версия пакета x.y.z (пусто — номер тега исходников)"
         type: string
         default: ""
       apply_route_all:
-        description: "Патч 0001: режим «Весь трафик через секцию»"
+        description: "Патч: режим «Весь трафик через секцию»"
         type: boolean
         default: true
       apply_aaaa:
-        description: "Патч 0002: пустые ответы AAAA без глобального IPv6"
+        description: "Патч: пустые ответы AAAA без глобального IPv6"
         type: boolean
         default: true
       run_tests:
-        description: "Прогнать ucode-тесты после патчей"
+        description: "Прогнать ucode-тесты после патчей (2.x)"
         type: boolean
         default: true
 
@@ -38,7 +42,7 @@ permissions:
 
 jobs:
   build:
-    name: Patch and assemble
+    name: Patch and assemble 2.x
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v5.0.0
@@ -142,28 +146,117 @@ jobs:
           tar -czf hotpatch.tar.gz -C bundle files hotpatch.json SHA256SUMS
           echo "bundle: $(tar -tzf hotpatch.tar.gz | wc -l) entries"
 
+      - name: Upload the 2.x bundle
+        uses: actions/upload-artifact@v4.6.2
+        with:
+          name: hotpatch-2x
+          path: hotpatch.tar.gz
+          if-no-files-found: error
+
+  build-105:
+    name: Patch and assemble 1.0.5
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5.0.0
+
+      - name: Check out the 1.0.5 sources
+        uses: actions/checkout@v5.0.0
+        with:
+          repository: ${{ inputs.source_repo }}
+          ref: ${{ inputs.ref_105 }}
+          path: forkop-105
+
+      - name: Apply the patch
+        working-directory: forkop-105
+        run: |
+          if git apply -v "$GITHUB_WORKSPACE/forkop-1-0-5-route-all-and-aaaa.patch" 2>/dev/null; then
+            echo "git apply ok"
+          else
+            patch -p1 --fuzz=10 < "$GITHUB_WORKSPACE/forkop-1-0-5-route-all-and-aaaa.patch"
+          fi
+          git status --short
+
+      - name: Build po2lmo
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential
+          git clone --depth 1 https://github.com/openwrt/luci.git /tmp/luci
+          cd /tmp/luci/modules/luci-base/src
+          cc -std=gnu17 -o contrib/lemon contrib/lemon.c
+          ./contrib/lemon -q lib/plural_formula.y
+          cc -o po2lmo po2lmo.c lib/lmo.c lib/plural_formula.c
+
+      - name: Assemble the hot-patch bundle
+        run: |
+          mkdir -p bundle/files/usr/lib/forkop/nft bundle/files/usr/lib/forkop/singbox \
+                   bundle/files/www/luci-static/resources/view/forkop \
+                   bundle/files/usr/lib/lua/luci/i18n
+          SRC=forkop-105/forkop/files/usr/lib
+          cp "$SRC/nft/apply.uc" bundle/files/usr/lib/forkop/nft/
+          cp "$SRC/singbox/generator.uc" "$SRC/singbox/dns.uc" bundle/files/usr/lib/forkop/singbox/
+          cp forkop-105/luci-app-forkop/htdocs/luci-static/resources/view/forkop/settings.js \
+             bundle/files/www/luci-static/resources/view/forkop/settings.js
+          /tmp/luci/modules/luci-base/src/po2lmo \
+            forkop-105/luci-app-forkop/po/ru/forkop.po \
+            bundle/files/usr/lib/lua/luci/i18n/forkop.ru.lmo
+          printf '{"base": "1.0.5"}\n' > bundle/hotpatch.json
+          ( cd bundle/files && sha256sum usr/lib/forkop/nft/apply.uc \
+              usr/lib/forkop/singbox/generator.uc usr/lib/forkop/singbox/dns.uc \
+              www/luci-static/resources/view/forkop/settings.js \
+              usr/lib/lua/luci/i18n/forkop.ru.lmo > ../SHA256SUMS )
+          tar -czf hotpatch-1.0.5.tar.gz -C bundle files hotpatch.json SHA256SUMS
+          echo "bundle: $(tar -tzf hotpatch-1.0.5.tar.gz | wc -l) entries"
+
+      - name: Upload the 1.0.5 bundle
+        uses: actions/upload-artifact@v4.6.2
+        with:
+          name: hotpatch-105
+          path: hotpatch-1.0.5.tar.gz
+          if-no-files-found: error
+
+  publish:
+    name: Publish the release
+    needs: [build, build-105]
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5.0.0
+
+      - name: Resolve the release tag
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ inputs.source_repo }}
+          REF: ${{ inputs.source_ref }}
+        run: |
+          if [ -n "$REF" ]; then v=${REF#v}; echo "tag=v$v" >> "$GITHUB_ENV"; exit 0; fi
+          tag=$(gh api "repos/$REPO/releases/latest" --jq .tag_name)
+          echo "tag=v${tag#v}" >> "$GITHUB_ENV"
+
+      - name: Download the bundles
+        uses: actions/download-artifact@v4
+        with:
+          pattern: hotpatch-*
+          merge-multiple: true
+          path: release
+
       - name: Publish the release
         env:
           GH_TOKEN: ${{ github.token }}
-          TAG: v${{ env.ver }}
+          TAG: ${{ env.tag }}
           ROUTE_ALL: ${{ inputs.apply_route_all }}
           AAAA: ${{ inputs.apply_aaaa }}
         run: |
           set -euo pipefail
-          notes="Горячий патч для установленного Forkop ${{ env.ver }}."
-          notes="$notes"$'\\n\\nСостав патчей:'
-          if [ "$ROUTE_ALL" = "true" ]; then notes="$notes"$'\\n- весь трафик через одну секцию: галочка в Настройки → Сеть'; fi
-          if [ "$AAAA" = "true" ]; then notes="$notes"$'\\n- пустые ответы AAAA без глобального IPv6 — приложения, которые стучатся по IPv6 первыми, не зависают'; fi
-          notes="$notes"$'\\n\\nУстановка на роутере:'
-          notes="$notes"$'\\n```sh'
-          notes="$notes"$'\\nwget -O /tmp/hotpatch-install.sh https://github.com/xCodeOn/Forkop-patch-ip6-games/releases/latest/download/install.sh'
-          notes="$notes"$'\\nsh /tmp/hotpatch-install.sh'
-          notes="$notes"$'\\n```'
-          notes="$notes"$'\\n\\nЯдро sing-box-forkop ставится отдельно, как у официального Forkop.'
+          notes="Горячие патчи для установленного Forkop."
+          notes="$notes"$'\n\nСостав патчей:'
+          if [ "$ROUTE_ALL" = "true" ]; then notes="$notes"$'\n- весь трафик через одну секцию: галочка в Настройки'; fi
+          if [ "$AAAA" = "true" ]; then notes="$notes"$'\n- пустые ответы AAAA без глобального IPv6 — приложения, которые стучатся по IPv6 первыми, не зависают'; fi
+          notes="$notes"$'\n\nУстановка на роутере:\n\nДля Forkop 2.0.0:\n```sh\nwget -qO - https://github.com/xCodeOn/Forkop-patch-ip6-games/releases/latest/download/install.sh | sh\n```\n\nДля Forkop 1.0.5:\n```sh\nwget -qO - https://github.com/xCodeOn/Forkop-patch-ip6-games/releases/latest/download/install-1.0.5.sh | sh\n```\n\nЯдро sing-box-forkop ставится отдельно, как у официального Forkop.'
+          cp install.sh install-1.0.5.sh release/
+          for p in *.patch; do cp "$p" release/; done
           if gh release view "$TAG" >/dev/null 2>&1; then
-            gh release upload "$TAG" --clobber -- hotpatch.tar.gz install.sh *.patch
+            gh release upload "$TAG" --clobber -- release/*
             echo "Release $TAG updated"
           else
-            gh release create "$TAG" --title "$TAG" --notes "$notes" -- hotpatch.tar.gz install.sh *.patch
+            gh release create "$TAG" --title "$TAG" --notes "$notes" -- release/*
             echo "Release $TAG created"
           fi

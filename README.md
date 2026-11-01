@@ -52,22 +52,34 @@ patch -p1 --fuzz=10 < ../forkop-1-0-5-route-all-and-aaaa.patch
 Патч ставится поверх уже установленного Forkop — исходники и сборка не нужны.
 Одна команда в SSH-терминале роутера: скачает скрипт, скачает hot-patch-пак из
 релиза, проверит контрольные суммы, уложит файлы и перезагрузит конфигурацию —
-без промежуточных шагов:
+без промежуточных шагов.
+
+**Для Forkop 2.0.0:**
 
 ```sh
 wget -qO - https://github.com/xCodeOn/Forkop-patch-ip6-games/releases/latest/download/install.sh | sh
 ```
 
-Дальше — **Службы → Forkop → Настройки → Сеть → Весь трафик через секцию**.
-
-Если хотите держать скрипт на роутере и запускать его одной короткой командой,
-сохраните его один раз:
+**Для Forkop 1.0.5:**
 
 ```sh
-wget -O /tmp/hotpatch-install.sh https://github.com/xCodeOn/Forkop-patch-ip6-games/releases/latest/download/install.sh
+wget -qO - https://github.com/xCodeOn/Forkop-patch-ip6-games/releases/latest/download/install-1.0.5.sh | sh
 ```
 
-…и дальше после каждого обновления Forkop — просто `sh /tmp/hotpatch-install.sh`.
+Дальше — **Службы → Forkop → Настройки**: в 2.x галочка в группе «Сеть», в 1.0.5 —
+«All traffic through section» на странице настроек.
+
+Нюансы:
+
+- скрипты не проверяют версию — каждый ставит свой пак: `install.sh` собран под
+  **Forkop 2.0.0**, `install-1.0.5.sh` — под **1.0.5**; для сильно других версий
+  пересоберите паки workflow'ом под нужный тег;
+- хот-патч слетает при штатном обновлении Forkop — после него просто запустите
+  скрипт ещё раз: workflow пересобирает паки под новый тег автоматически;
+- ядро [sing-box-forkop](https://github.com/ushan0v/sing-box-forkop) не трогается —
+  ставится отдельно, как у официального Forkop;
+- конфиг `/etc/config/forkop` сохраняется;
+- в 1.0.5 переводы новых строк уже внутри пака (forkop.ru.lmo).
 
 Нюансы:
 
