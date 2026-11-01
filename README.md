@@ -33,13 +33,13 @@
 ### Отдельно для Forkop 1.0.5
 
 Для старой архитектуры 1.0.x есть свой патч —
-`forkop-1.0.5-route-all-and-aaaa.patch`: тот же «весь трафик через секцию»
+`forkop-1-0-5-route-all-and-aaaa.patch`: тот же «весь трафик через секцию»
 (галочка в Настройки) и те же пустые ответы AAAA без глобального IPv6.
 Накладывается на тег `1.0.5`:
 
 ```sh
 git clone https://github.com/ushan0v/forkop -b 1.0.5 && cd forkop
-patch -p1 --fuzz=10 < ../forkop-1.0.5-route-all-and-aaaa.patch
+patch -p1 --fuzz=10 < ../forkop-1-0-5-route-all-and-aaaa.patch
 (cd fe-app-forkop && yarn install --frozen-lockfile && yarn build)
 ./build.sh 1.0.5 out
 ```
